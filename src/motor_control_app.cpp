@@ -30,6 +30,7 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
                      config.current_a_pin,
                      config.current_b_pin),
       command_(Serial),
+      motion_downsample_(config.motion_downsample),
       passive_torque_target_nm_(config.passive_torque_target_nm),
       passive_torque_vel_on_rad_s_(config.passive_torque_vel_on_rad_s),
       passive_torque_vel_off_rad_s_(config.passive_torque_vel_off_rad_s) {
@@ -129,6 +130,14 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     return;
   }
 
+  if (cmd && cmd[0] == 'C' && cmd[1] == 'D') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setMotionDownsample(static_cast<unsigned int>(max(0, atoi(cmd + 2))));
+    }
+    reportMotionDownsample();
+    return;
+  }
+
   if (cmd && cmd[0] == 'E' && !IsCommandSentinel(cmd[1])) {
     release_mode_ = false;
     passive_torque_mode_ = false;
@@ -165,6 +174,7 @@ void MotorControlApp::initializeMotor() {
   motor_.LPF_velocity.Tf = config_.lpf_velocity_tf;
   motor_.P_angle.P = config_.p_angle_p;
   motor_.velocity_limit = config_.velocity_limit_rad_s;
+  motor_.motion_downsample = motion_downsample_;
   motor_.useMonitoring(Serial);
   motor_.monitor_downsample = config_.monitor_downsample;
   motor_.monitor_variables = config_.monitor_variables;
@@ -204,6 +214,11 @@ void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   } else {
     motor_.target = 0.0f;
   }
+}
+
+void MotorControlApp::setMotionDownsample(unsigned int downsample) {
+  motion_downsample_ = downsample;
+  motor_.motion_downsample = motion_downsample_;
 }
 
 void MotorControlApp::setPassiveTorqueTargetNm(float target_nm) {
@@ -293,6 +308,11 @@ void MotorControlApp::reportPassiveTorqueVelOn() {
 void MotorControlApp::reportPassiveTorqueVelOff() {
   Serial.print(F("PassiveTorqueVelOff:"));
   Serial.println(passive_torque_vel_off_rad_s_, 4);
+}
+
+void MotorControlApp::reportMotionDownsample() {
+  Serial.print(F("Motion: downsample: "));
+  Serial.println(motion_downsample_);
 }
 
 float MotorControlApp::clampPassiveTorqueTargetNm(float target_nm) const {

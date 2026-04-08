@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-from PyQt5 import QtWidgets, QtCore
+from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.Qt import QTreeWidget
 from src.gui.sharedcomnponets.sharedcomponets import GUIToolKit
 from src.simpleFOCConnector import SimpleFOCDevice
@@ -55,8 +55,13 @@ class DeviceTreeView(QTreeWidget):
         self.motionDownsample.setText(0, '运动控制频率降采样')
         self.motionDownsample.setIcon(0, GUIToolKit.getIconByName('gear'))
         self.motionDownsample.setText(1, '')
-        self.motionDownsample.setFlags(
-            self.motionDownsample.flags() | QtCore.Qt.ItemIsEditable)
+        self.motionDownsampleEdit = QtWidgets.QLineEdit(self)
+        self.motionDownsampleEdit.setAlignment(QtCore.Qt.AlignCenter)
+        self.motionDownsampleEdit.setValidator(
+            QtGui.QRegExpValidator(QtCore.QRegExp("^[0-9]+$")))
+        self.motionDownsampleEdit.editingFinished.connect(
+            self.sendMotionDownsampleAction)
+        self.setItemWidget(self.motionDownsample, 1, self.motionDownsampleEdit)
         
         self.PIDVelocityConfig = self.addPIDSubtree(self.motionControl,'速度 PID')
         self.PIDAngleConfig = self.addPIDSubtree(self.motionControl,'角度 PID')
@@ -350,6 +355,13 @@ class DeviceTreeView(QTreeWidget):
         else:
             self.sendCommand(item, column)
 
+    def sendMotionDownsampleAction(self):
+        value = self.motionDownsampleEdit.text().strip()
+        if value == '':
+            return
+        self.motionDownsampleEdit.setText(value)
+        self.device.sendMotionDownsample(value)
+
     def sendCommand(self, item, column):
         value = item.text(1)
         fieldName = item.text(0)
@@ -442,7 +454,9 @@ class DeviceTreeView(QTreeWidget):
         self.phaseRes.setText(1,str(self.device.phaseResistance))
         # self.deviceStatus.setText(1,str(self.device.deviceStatus))
 
-        self.motionDownsample.setText(1,str(self.device.motionDownsample))
+        self.motionDownsampleEdit.blockSignals(True)
+        self.motionDownsampleEdit.setText(str(self.device.motionDownsample))
+        self.motionDownsampleEdit.blockSignals(False)
         # self.torque.setText(1,str(self.device.torqueType))
         # self.controller.setText(1,str(self.device.controlType))
         self.update()

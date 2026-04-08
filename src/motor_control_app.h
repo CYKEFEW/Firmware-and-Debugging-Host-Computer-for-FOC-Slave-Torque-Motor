@@ -40,6 +40,7 @@ struct MotorAppConfig {
   float pid_velocity_d;
   float lpf_velocity_tf;
   float p_angle_p;
+  unsigned int motion_downsample;
   uint8_t monitor_variables;
   unsigned int monitor_downsample;
   unsigned long serial_baud;
@@ -63,9 +64,11 @@ class MotorControlApp {
   void initializeCurrentSense();
   void setReleaseMode(bool enabled);
   void setPassiveTorqueMode(bool enabled);
+  void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
   void setPassiveTorqueVelOn(float velocity_threshold);
   void setPassiveTorqueVelOff(float velocity_threshold);
+  void reportMotionDownsample();
   void updateReleasedState();
   void updatePassiveTorqueTarget();
   void reportReleaseMode();
@@ -88,6 +91,7 @@ class MotorControlApp {
   bool release_mode_ = false;
   bool passive_torque_mode_ = false;
   bool passive_torque_active_ = false;
+  unsigned int motion_downsample_ = 0;
   float passive_torque_target_nm_;
   float passive_torque_vel_on_rad_s_;
   float passive_torque_vel_off_rad_s_;

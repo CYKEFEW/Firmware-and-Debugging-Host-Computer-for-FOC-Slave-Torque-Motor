@@ -31,6 +31,7 @@ class WorkAreaTabbedWidget(QtWidgets.QTabWidget):
         self.activeToolsList = []
 
         self.tabCloseRequested.connect(self.removeTabHandler)
+        QtCore.QTimer.singleShot(0, self.addDeviceTree)
 
         self.setStyleSheet("""
             QTabWidget::pane {
