@@ -61,6 +61,7 @@ class GUIToolKit(object):
             'disconnect': 'disconnect.png',
             'configure': 'configure.png',
             'pidconfig': 'pidconfig.png',
+            'pid': 'pid.png',
             'consoletool': 'consoletool.png',
             'fordward': 'fordward.png',
             'fastbackward': 'fastbackward.png',

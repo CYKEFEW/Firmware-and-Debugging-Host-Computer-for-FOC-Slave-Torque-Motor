@@ -72,10 +72,12 @@ class MotorControlApp {
   void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
   void setPassiveTorqueMaxDampingAngleDeg(float angle_deg);
+  void setPassiveTorqueFollowDeadzoneDeg(float angle_deg);
   void setPassiveTorqueCalculationHz(unsigned int calculation_hz);
   void setPassiveTorqueFollowPidP(float value);
   void setPassiveTorqueFollowPidI(float value);
   void setPassiveTorqueFollowPidD(float value);
+  void injectPassiveTorqueFieldOffsetDeg(float offset_deg);
   void resetPassiveTorqueFieldReference();
   void updateReleasedState();
   void updatePassiveTorqueControl();
@@ -84,6 +86,7 @@ class MotorControlApp {
   void reportPassiveTorqueDebugEnabled();
   void reportPassiveTorqueTargetNm();
   void reportPassiveTorqueMaxDampingAngleDeg();
+  void reportPassiveTorqueFollowDeadzoneDeg();
   void reportPassiveTorqueCalculationHz();
   void reportPassiveTorqueFollowPidP();
   void reportPassiveTorqueFollowPidI();

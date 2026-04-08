@@ -133,6 +133,14 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     return;
   }
 
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'H') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueFollowDeadzoneDeg(atof(cmd + 2));
+    }
+    reportPassiveTorqueFollowDeadzoneDeg();
+    return;
+  }
+
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'F') {
     if (!IsCommandSentinel(cmd[2])) {
       setPassiveTorqueCalculationHz(
@@ -167,6 +175,14 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
   }
 
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'G') {
+    reportPassiveTorqueDampingAngleDeg();
+    return;
+  }
+
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'O') {
+    if (!IsCommandSentinel(cmd[2])) {
+      injectPassiveTorqueFieldOffsetDeg(atof(cmd + 2));
+    }
     reportPassiveTorqueDampingAngleDeg();
     return;
   }
@@ -298,6 +314,12 @@ void MotorControlApp::setPassiveTorqueMaxDampingAngleDeg(float angle_deg) {
   passive_follow_pid_prev_error_ = 0.0f;
 }
 
+void MotorControlApp::setPassiveTorqueFollowDeadzoneDeg(float angle_deg) {
+  passive_torque_follow_deadzone_deg_ = constrain(fabsf(angle_deg), 0.0f, 20.0f);
+  passive_follow_pid_integral_ = 0.0f;
+  passive_follow_pid_prev_error_ = 0.0f;
+}
+
 void MotorControlApp::setPassiveTorqueCalculationHz(unsigned int calculation_hz) {
   passive_torque_calculation_hz_ = constrain(calculation_hz, 1u, 5000u);
 }
@@ -315,6 +337,16 @@ void MotorControlApp::setPassiveTorqueFollowPidI(float value) {
 void MotorControlApp::setPassiveTorqueFollowPidD(float value) {
   passive_torque_follow_pid_d_ = max(0.0f, value);
   passive_follow_pid_prev_error_ = 0.0f;
+}
+
+void MotorControlApp::injectPassiveTorqueFieldOffsetDeg(float offset_deg) {
+  const float current_angle = motor_.shaftAngle();
+  const float offset_rad = constrain(offset_deg, -180.0f, 180.0f) * DEG_TO_RAD;
+  passive_field_angle_ref_rad_ = current_angle - offset_rad;
+  passive_torque_damping_angle_rad_ = offset_rad;
+  passive_follow_pid_integral_ = 0.0f;
+  passive_follow_pid_prev_error_ = 0.0f;
+  passive_torque_last_update_us_ = micros();
 }
 
 void MotorControlApp::resetPassiveTorqueFieldReference() {
@@ -441,6 +473,11 @@ void MotorControlApp::reportPassiveTorqueTargetNm() {
 void MotorControlApp::reportPassiveTorqueMaxDampingAngleDeg() {
   Serial.print(F("PassiveTorqueMaxAngle:"));
   Serial.println(passive_torque_max_damping_angle_deg_, 4);
+}
+
+void MotorControlApp::reportPassiveTorqueFollowDeadzoneDeg() {
+  Serial.print(F("PassiveTorqueFollowDeadzone:"));
+  Serial.println(passive_torque_follow_deadzone_deg_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueCalculationHz() {
