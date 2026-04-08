@@ -13,7 +13,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
 
         self.device = SimpleFOCDevice.getInstance()
         self._targetDirty = False
-        self._maxAngleDirty = False
         self._deadzoneDirty = False
         self._calculationRateDirty = False
         self._followPidPDirty = False
@@ -89,23 +88,8 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.applyTargetButton.clicked.connect(self.applyTargetValue)
         self.gridLayout.addWidget(self.applyTargetButton, 2, 4)
 
-        self.maxAngleLabel = QtWidgets.QLabel('最大磁场阻尼角[°]:', self)
-        self.gridLayout.addWidget(self.maxAngleLabel, 3, 0, 1, 2)
-
-        self.maxAngleEdit = QtWidgets.QLineEdit(self)
-        self.maxAngleEdit.setValidator(float_validator)
-        self.maxAngleEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.maxAngleEdit.setText('1.0')
-        self.maxAngleEdit.textEdited.connect(self._markMaxAngleDirty)
-        self.maxAngleEdit.returnPressed.connect(self.applyMaxAngle)
-        self.gridLayout.addWidget(self.maxAngleEdit, 3, 2, 1, 2)
-
-        self.applyMaxAngleButton = QtWidgets.QPushButton('应用')
-        self.applyMaxAngleButton.clicked.connect(self.applyMaxAngle)
-        self.gridLayout.addWidget(self.applyMaxAngleButton, 3, 4)
-
         self.deadzoneLabel = QtWidgets.QLabel('跟随死区[°]:', self)
-        self.gridLayout.addWidget(self.deadzoneLabel, 4, 0, 1, 2)
+        self.gridLayout.addWidget(self.deadzoneLabel, 3, 0, 1, 2)
 
         self.deadzoneEdit = QtWidgets.QLineEdit(self)
         self.deadzoneEdit.setValidator(float_validator)
@@ -113,14 +97,14 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.deadzoneEdit.setText('0.8')
         self.deadzoneEdit.textEdited.connect(self._markDeadzoneDirty)
         self.deadzoneEdit.returnPressed.connect(self.applyDeadzone)
-        self.gridLayout.addWidget(self.deadzoneEdit, 4, 2, 1, 2)
+        self.gridLayout.addWidget(self.deadzoneEdit, 3, 2, 1, 2)
 
         self.applyDeadzoneButton = QtWidgets.QPushButton('应用')
         self.applyDeadzoneButton.clicked.connect(self.applyDeadzone)
-        self.gridLayout.addWidget(self.applyDeadzoneButton, 4, 4)
+        self.gridLayout.addWidget(self.applyDeadzoneButton, 3, 4)
 
         self.calculationRateLabel = QtWidgets.QLabel('计算频率[Hz]:', self)
-        self.gridLayout.addWidget(self.calculationRateLabel, 5, 0, 1, 2)
+        self.gridLayout.addWidget(self.calculationRateLabel, 4, 0, 1, 2)
 
         self.calculationRateEdit = QtWidgets.QLineEdit(self)
         self.calculationRateEdit.setValidator(int_validator)
@@ -130,14 +114,14 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
             self._markCalculationRateDirty)
         self.calculationRateEdit.returnPressed.connect(
             self.applyCalculationRate)
-        self.gridLayout.addWidget(self.calculationRateEdit, 5, 2, 1, 2)
+        self.gridLayout.addWidget(self.calculationRateEdit, 4, 2, 1, 2)
 
         self.applyCalculationRateButton = QtWidgets.QPushButton('应用')
         self.applyCalculationRateButton.clicked.connect(self.applyCalculationRate)
-        self.gridLayout.addWidget(self.applyCalculationRateButton, 5, 4)
+        self.gridLayout.addWidget(self.applyCalculationRateButton, 4, 4)
 
         self.followPidPLabel = QtWidgets.QLabel('跟随 PID P:', self)
-        self.gridLayout.addWidget(self.followPidPLabel, 6, 0, 1, 2)
+        self.gridLayout.addWidget(self.followPidPLabel, 5, 0, 1, 2)
 
         self.followPidPEdit = QtWidgets.QLineEdit(self)
         self.followPidPEdit.setValidator(float_validator)
@@ -145,14 +129,14 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.followPidPEdit.setText('0.25')
         self.followPidPEdit.textEdited.connect(self._markFollowPidPDirty)
         self.followPidPEdit.returnPressed.connect(self.applyFollowPidP)
-        self.gridLayout.addWidget(self.followPidPEdit, 6, 2, 1, 2)
+        self.gridLayout.addWidget(self.followPidPEdit, 5, 2, 1, 2)
 
         self.applyFollowPidPButton = QtWidgets.QPushButton('应用')
         self.applyFollowPidPButton.clicked.connect(self.applyFollowPidP)
-        self.gridLayout.addWidget(self.applyFollowPidPButton, 6, 4)
+        self.gridLayout.addWidget(self.applyFollowPidPButton, 5, 4)
 
         self.followPidILabel = QtWidgets.QLabel('跟随 PID I:', self)
-        self.gridLayout.addWidget(self.followPidILabel, 7, 0, 1, 2)
+        self.gridLayout.addWidget(self.followPidILabel, 6, 0, 1, 2)
 
         self.followPidIEdit = QtWidgets.QLineEdit(self)
         self.followPidIEdit.setValidator(float_validator)
@@ -160,14 +144,14 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.followPidIEdit.setText('0.0')
         self.followPidIEdit.textEdited.connect(self._markFollowPidIDirty)
         self.followPidIEdit.returnPressed.connect(self.applyFollowPidI)
-        self.gridLayout.addWidget(self.followPidIEdit, 7, 2, 1, 2)
+        self.gridLayout.addWidget(self.followPidIEdit, 6, 2, 1, 2)
 
         self.applyFollowPidIButton = QtWidgets.QPushButton('应用')
         self.applyFollowPidIButton.clicked.connect(self.applyFollowPidI)
-        self.gridLayout.addWidget(self.applyFollowPidIButton, 7, 4)
+        self.gridLayout.addWidget(self.applyFollowPidIButton, 6, 4)
 
         self.followPidDLabel = QtWidgets.QLabel('跟随 PID D:', self)
-        self.gridLayout.addWidget(self.followPidDLabel, 8, 0, 1, 2)
+        self.gridLayout.addWidget(self.followPidDLabel, 7, 0, 1, 2)
 
         self.followPidDEdit = QtWidgets.QLineEdit(self)
         self.followPidDEdit.setValidator(float_validator)
@@ -175,11 +159,11 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.followPidDEdit.setText('0.0')
         self.followPidDEdit.textEdited.connect(self._markFollowPidDDirty)
         self.followPidDEdit.returnPressed.connect(self.applyFollowPidD)
-        self.gridLayout.addWidget(self.followPidDEdit, 8, 2, 1, 2)
+        self.gridLayout.addWidget(self.followPidDEdit, 7, 2, 1, 2)
 
         self.applyFollowPidDButton = QtWidgets.QPushButton('应用')
         self.applyFollowPidDButton.clicked.connect(self.applyFollowPidD)
-        self.gridLayout.addWidget(self.applyFollowPidDButton, 8, 4)
+        self.gridLayout.addWidget(self.applyFollowPidDButton, 7, 4)
 
         self.disableUI()
         self.refreshModeUi()
@@ -213,9 +197,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
     def _markTargetDirty(self, _text):
         self._targetDirty = True
 
-    def _markMaxAngleDirty(self, _text):
-        self._maxAngleDirty = True
-
     def _markDeadzoneDirty(self, _text):
         self._deadzoneDirty = True
 
@@ -236,9 +217,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
             self.incrementLabel.setText('力矩步进[Nm]:')
             self.targetLabel.setText('目标阻尼力矩[Nm]:')
 
-            self.maxAngleLabel.show()
-            self.maxAngleEdit.show()
-            self.applyMaxAngleButton.show()
             self.deadzoneLabel.show()
             self.deadzoneEdit.show()
             self.applyDeadzoneButton.show()
@@ -255,10 +233,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
             self.followPidDEdit.show()
             self.applyFollowPidDButton.show()
 
-            if not self._maxAngleDirty:
-                self._setLineEditValue(
-                    self.maxAngleEdit,
-                    self.device.passiveTorqueMaxDampingAngleDeg)
             if not self._deadzoneDirty:
                 self._setLineEditValue(
                     self.deadzoneEdit,
@@ -283,9 +257,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
             self.incrementLabel.setText('步进值:')
             self.targetLabel.setText('目标值:')
 
-            self.maxAngleLabel.hide()
-            self.maxAngleEdit.hide()
-            self.applyMaxAngleButton.hide()
             self.deadzoneLabel.hide()
             self.deadzoneEdit.hide()
             self.applyDeadzoneButton.hide()
@@ -332,16 +303,6 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self._sendValue(target)
         self._targetDirty = False
         self._setLineEditValue(self.targetEdit, self._currentValue())
-
-    def applyMaxAngle(self):
-        value = self.maxAngleEdit.text().strip()
-        if value == '':
-            return
-        self.device.sendPassiveTorqueMaxDampingAngle(value)
-        self._maxAngleDirty = False
-        self._setLineEditValue(
-            self.maxAngleEdit,
-            self.device.passiveTorqueMaxDampingAngleDeg)
 
     def applyDeadzone(self):
         value = self.deadzoneEdit.text().strip()

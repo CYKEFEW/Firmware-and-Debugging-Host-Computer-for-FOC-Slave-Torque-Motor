@@ -12,6 +12,7 @@ from src.simpleFOCConnector import SimpleFOCDevice
 
 
 LOOP_DEFINITIONS = (
+    # (名称, 标题, 默认启用, 默认调P, 默认调I, 默认调D)
     ('current_q', '电流 Q PID', True, True, True, False),
     ('current_d', '电流 D PID', False, True, True, False),
     ('velocity', '速度 PID', True, True, True, False),
@@ -24,11 +25,13 @@ class PidAutoTuneWorker(QtCore.QThread):
     logMessage = QtCore.pyqtSignal(str)
     finishedWithStatus = QtCore.pyqtSignal(bool, str)
 
-    def __init__(self, device, selected_options, max_iterations, parent=None):
+    def __init__(self, device, selected_options, max_iterations,
+                 passive_follow_final_target_nm, parent=None):
         super().__init__(parent)
         self.device = device
         self.selected_options = selected_options
         self.max_iterations = max_iterations
+        self.passive_follow_final_target_nm = passive_follow_final_target_nm
         self.measurement_rate_hz = 50
         self._stop_event = threading.Event()
 
@@ -133,13 +136,19 @@ class PidAutoTuneWorker(QtCore.QThread):
         if loop_name == 'angle':
             return {'step': 0.35, 'settle': 0.35, 'capture': 1.00}
         deadzone = self._to_float(self.device.passiveTorqueFollowDeadzoneDeg, 0.8)
-        max_angle = self._to_float(self.device.passiveTorqueMaxDampingAngleDeg, 1.0)
         return {
-            'step': max(max_angle * 0.6, deadzone + 0.3, 0.8),
+            'step': max(deadzone + 0.4, 0.8),
             'settle': 0.25,
             'capture': 0.55,
             'hold': 0.18,
         }
+
+    def _poll_device_state(self, loop_name):
+        self.device.updateStates()
+        if loop_name == 'passive_follow':
+            self._sleep(0.012)
+        else:
+            self._sleep(0.010)
 
     def _capture_samples(self, loop_name, duration_s):
         attr_name = self._measurement_attr(loop_name)
@@ -150,8 +159,9 @@ class PidAutoTuneWorker(QtCore.QThread):
             elapsed = time.monotonic() - started
             if elapsed > duration_s:
                 break
+            self._poll_device_state(loop_name)
             samples.append((elapsed, self._to_float(getattr(self.device, attr_name, 0.0))))
-            time.sleep(interval_s)
+            self._sleep(max(0.0, interval_s - 0.012))
         return samples
 
     def _evaluate_step_response(self, samples, target_delta):
@@ -209,7 +219,30 @@ class PidAutoTuneWorker(QtCore.QThread):
             'peak': max(metric.get('peak', 0.0) for metric in metrics_list),
             'residual': statistics.fmean(
                 metric.get('residual', 0.0) for metric in metrics_list),
+            'score_min': min(scores),
+            'score_max': max(scores),
+            'sample_count': len(metrics_list),
         }
+
+    def _format_metrics_summary(self, metrics):
+        if not metrics:
+            return ''
+        parts = ['score=%.4f' % metrics.get('score', 0.0)]
+        if 'steady' in metrics:
+            parts.append('steady=%.4f' % metrics.get('steady', 0.0))
+        if 'residual' in metrics:
+            parts.append('residual=%.4f' % metrics.get('residual', 0.0))
+        if 'peak' in metrics:
+            parts.append('peak=%.4f' % metrics.get('peak', 0.0))
+        if 'overshoot' in metrics:
+            parts.append('overshoot=%.4f' % metrics.get('overshoot', 0.0))
+        if 'score_min' in metrics:
+            parts.append('score_min=%.4f' % metrics.get('score_min', 0.0))
+        if 'score_max' in metrics:
+            parts.append('score_max=%.4f' % metrics.get('score_max', 0.0))
+        if 'sample_count' in metrics:
+            parts.append('steps=%d' % metrics.get('sample_count', 0))
+        return ' | '.join(parts)
 
     def _send_zero_target(self, loop_name):
         if loop_name == 'angle':
@@ -218,8 +251,8 @@ class PidAutoTuneWorker(QtCore.QThread):
             self.device.sendTargetValue('0')
 
     def _passive_follow_test_target_nm(self):
-        value = self._to_float(self.device.passiveTorqueTargetNm, 0.03)
-        return value if value >= 0.01 else 0.03
+        value = self._to_float(self.passive_follow_final_target_nm, 0.05)
+        return value if value >= 0.01 else 0.05
 
     def _passive_follow_step_count(self):
         return 20
@@ -245,6 +278,7 @@ class PidAutoTuneWorker(QtCore.QThread):
 
     def _configure_passive_follow_loop(self):
         test_target = self._passive_follow_test_target_nm()
+        spec = self._spec_for_loop('passive_follow')
         self.device.sendReleaseMode('0')
         self._sleep(0.05)
         self.device.sendDeviceStatus('1')
@@ -258,6 +292,17 @@ class PidAutoTuneWorker(QtCore.QThread):
         self._log(
             '从动力矩跟随 PID 使用 %.4f Nm 终值，按 %d 挡阻尼力矩步进测试。'
             % (test_target, self._passive_follow_step_count()))
+        self._log(
+            '从动力矩配置 | final_target=%.4f Nm | deadzone=%.3f deg | calc=%d Hz | '
+            'pid=(%.5f, %.5f, %.5f) | offset_step=%.3f deg'
+            % (
+                test_target,
+                self._to_float(self.device.passiveTorqueFollowDeadzoneDeg),
+                int(self._to_float(self.device.passiveTorqueCalculationHz, 1000)),
+                self._to_float(self.device.passiveTorqueFollowPidP),
+                self._to_float(self.device.passiveTorqueFollowPidI),
+                self._to_float(self.device.passiveTorqueFollowPidD),
+                spec['step']))
 
     def _configure_loop(self, loop_name):
         if loop_name == 'passive_follow':
@@ -290,6 +335,9 @@ class PidAutoTuneWorker(QtCore.QThread):
             if self.stopped():
                 break
             target_nm = final_target_nm * step_index / step_count
+            self._log(
+                '从动力矩挡位 %02d/%02d | target=%.4f Nm | offset_step=%.3f deg'
+                % (step_index, step_count, target_nm, spec['step']))
             self.device.sendPassiveTorqueTarget(str(target_nm))
             self._sleep(0.12)
             self.device.sendPassiveTorqueFieldOffset('0')
@@ -298,12 +346,17 @@ class PidAutoTuneWorker(QtCore.QThread):
             hold_samples = self._capture_samples('passive_follow', spec['hold'])
             self.device.sendPassiveTorqueFieldOffset('0')
             decay_samples = self._capture_samples('passive_follow', spec['capture'])
-            metrics.append(
-                self._evaluate_decay_response(hold_samples + decay_samples))
+            step_metrics = self._evaluate_decay_response(hold_samples + decay_samples)
+            metrics.append(step_metrics)
+            self._log(
+                '从动力矩挡位 %02d/%02d 结果 | %s'
+                % (step_index, step_count, self._format_metrics_summary(step_metrics)))
         self.device.sendPassiveTorqueFieldOffset('0')
         self.device.sendPassiveTorqueTarget(str(final_target_nm))
         self._sleep(spec['settle'])
-        return self._combine_passive_follow_metrics(metrics)
+        combined_metrics = self._combine_passive_follow_metrics(metrics)
+        self._log('从动力矩汇总 | %s' % self._format_metrics_summary(combined_metrics))
+        return combined_metrics
 
     def _collect_metrics(self, loop_name):
         if loop_name == 'passive_follow':
@@ -349,7 +402,7 @@ class PidAutoTuneWorker(QtCore.QThread):
                 metrics = self._collect_metrics(loop_name)
                 score = metrics['score']
                 self._log(
-                    '%s | %s 迭代 %d | P=%.5f I=%.5f D=%.5f | score=%.4f'
+                    '%s | %s 迭代 %d | P=%.5f I=%.5f D=%.5f | %s'
                     % (
                         self._loop_label(loop_name),
                         term_name,
@@ -357,7 +410,7 @@ class PidAutoTuneWorker(QtCore.QThread):
                         trial_values['P'],
                         trial_values['I'],
                         trial_values['D'],
-                        score))
+                        self._format_metrics_summary(metrics)))
                 if best_score is None or score < best_score:
                     best_score = score
                     best_candidate = trial_values[term_name]
@@ -503,13 +556,13 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             label.setFont(label_font)
             matrix_layout.addWidget(label, 0, column)
 
-        for row_index, (loop_name, label, enable_p, enable_i, enable_d, _) in enumerate(
+        for row_index, (loop_name, label, enabled_default, enable_p, enable_i, enable_d) in enumerate(
                 LOOP_DEFINITIONS, start=1):
             name_label = QtWidgets.QLabel(label)
             matrix_layout.addWidget(name_label, row_index, 0)
 
             enabled_box = QtWidgets.QCheckBox()
-            enabled_box.setChecked(True)
+            enabled_box.setChecked(enabled_default)
             matrix_layout.addWidget(enabled_box, row_index, 1)
 
             p_box = QtWidgets.QCheckBox()
@@ -534,6 +587,14 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         root_layout.addWidget(matrix_group)
 
         options_layout = QtWidgets.QHBoxLayout()
+        options_layout.addWidget(QtWidgets.QLabel('阻尼力矩终值[Nm]:'))
+        self.passiveFollowFinalTorqueSpin = QtWidgets.QDoubleSpinBox()
+        self.passiveFollowFinalTorqueSpin.setDecimals(3)
+        self.passiveFollowFinalTorqueSpin.setRange(0.01, 2.0)
+        self.passiveFollowFinalTorqueSpin.setSingleStep(0.01)
+        self.passiveFollowFinalTorqueSpin.setValue(0.05)
+        options_layout.addWidget(self.passiveFollowFinalTorqueSpin)
+
         options_layout.addWidget(QtWidgets.QLabel('最大迭代次数:'))
         self.maxIterationsSpin = QtWidgets.QSpinBox()
         self.maxIterationsSpin.setRange(1, 20)
@@ -544,7 +605,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
 
         note_label = QtWidgets.QLabel(
             '说明：自动测量会暂时接管控制模式；从动力矩跟随 PID 使用磁场偏置衰减法，'
-            '目标阻尼力矩固定按 20 挡步进扫描；电流 D PID 仍使用 Q 轴响应做代理。')
+            '阻尼力矩终值按 20 挡步进扫描；电流 D PID 仍使用 Q 轴响应做代理。')
         note_label.setWordWrap(True)
         root_layout.addWidget(note_label)
 
@@ -626,6 +687,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             self.device,
             selected_options,
             self.maxIterationsSpin.value(),
+            self.passiveFollowFinalTorqueSpin.value(),
             self)
         self.worker.logMessage.connect(self.appendLog)
         self.worker.finishedWithStatus.connect(self.handleFinished)

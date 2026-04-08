@@ -12,7 +12,7 @@ constexpr float kPassiveTorqueTargetNm = 0.02f;          // 目标阻尼力矩 [
 constexpr float kPassiveTorqueMaxAngleDeg = 2.0f;        // 最大磁场阻尼角 [deg]
 constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;  // 磁场方向跟随死区 [deg]
 constexpr unsigned int kPassiveTorqueCalculationHz = 1000;  // 计算频率 [Hz]
-constexpr float kPassiveTorqueFollowPidP = 0.25f;        // 跟随 PID 的 P
+constexpr float kPassiveTorqueFollowPidP = 0.0864f;        // 跟随 PID 的 P
 constexpr float kPassiveTorqueFollowPidI = 0.0f;         // 跟随 PID 的 I
 constexpr float kPassiveTorqueFollowPidD = 0.0f;         // 跟随 PID 的 D
 
