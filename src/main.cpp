@@ -2,26 +2,28 @@
 
 namespace {
 // 基本硬件参数
-constexpr int kPolePairs = 7;
-constexpr float kMotorKvRpmPerVolt = 137.75f;
-constexpr float kPowerSupplyVoltage = 12.8f;
-constexpr float kCurrentLimitAmp = 1.8f;
+constexpr int kPolePairs = 7; // 电机极对数
+constexpr float kMotorKvRpmPerVolt = 137.75f; // 电机 KV
+constexpr float kPowerSupplyVoltage = 12.8f; // 驱动母线电压
+constexpr float kCurrentLimitAmp = 1.8f; // 电流限制，单位 A
 
 // 从动力矩默认参数
-constexpr float kPassiveTorqueTargetNm = 0.05f;
-constexpr float kPassiveTorqueVelOnRadPerSec = 0.20f;
-constexpr float kPassiveTorqueVelOffRadPerSec = 0.10f;
+constexpr float kPassiveTorqueTargetNm = 0.05f; // 默认从动力矩，单位 Nm
+constexpr float kPassiveTorqueVelOnRadPerSec = 1.20f; // 起控速度阈值
+constexpr float kPassiveTorqueVelOffRadPerSec = 0.60f; // 释放速度阈值
+
+// 运动控制降采样，0 表示不降采样，1 表示每 2 个控制周期执行一次运动控制，以此类推
 constexpr unsigned int kMotionDownsample = 0;
 
 // 传感器与驱动引脚
-constexpr int kI2cSdaPin = 23;
-constexpr int kI2cSclPin = 5;
-constexpr int kPwmUPin = 26;
-constexpr int kPwmVPin = 27;
-constexpr int kPwmWPin = 14;
-constexpr int kDriverEnablePin = 12;
-constexpr int kCurrentAPin = 35;
-constexpr int kCurrentBPin = 34;
+constexpr int kI2cSdaPin = 23;  // I2C SDA 引脚
+constexpr int kI2cSclPin = 5;   // I2C SCL 引脚
+constexpr int kPwmUPin = 26;    // U 相 PWM 引脚
+constexpr int kPwmVPin = 27;    // V 相 PWM 引脚
+constexpr int kPwmWPin = 14;    // W 相 PWM 引脚
+constexpr int kDriverEnablePin = 12; // 驱动使能引脚
+constexpr int kCurrentAPin = 35;  // A 相电流采样引脚
+constexpr int kCurrentBPin = 34;  // B 相电流采样引脚
 
 // 当前工程的电机应用配置
 const MotorAppConfig kMotorConfig = {

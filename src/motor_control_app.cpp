@@ -130,6 +130,14 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     return;
   }
 
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'Y') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueDebug(cmd[2] != '0');
+    }
+    reportPassiveTorqueDebugEnabled();
+    return;
+  }
+
   if (cmd && cmd[0] == 'C' && cmd[1] == 'D') {
     if (!IsCommandSentinel(cmd[2])) {
       setMotionDownsample(static_cast<unsigned int>(max(0, atoi(cmd + 2))));
@@ -193,6 +201,7 @@ void MotorControlApp::setReleaseMode(bool enabled) {
   if (release_mode_) {
     passive_torque_mode_ = false;
     passive_torque_active_ = false;
+    passive_torque_direction_ = 0;
     driver_.disable();
   } else if (motor_.enabled) {
     driver_.enable();
@@ -202,6 +211,7 @@ void MotorControlApp::setReleaseMode(bool enabled) {
 void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   passive_torque_mode_ = enabled;
   passive_torque_active_ = false;
+  passive_torque_direction_ = 0;
   if (passive_torque_mode_) {
     release_mode_ = false;
     motor_.controller = MotionControlType::torque;
@@ -211,9 +221,15 @@ void MotorControlApp::setPassiveTorqueMode(bool enabled) {
       motor_.enable();
     }
     driver_.enable();
+    reportPassiveTorqueDebug("enable", 0.0f, 0.0f);
   } else {
     motor_.target = 0.0f;
+    reportPassiveTorqueDebug("disable", 0.0f, 0.0f);
   }
+}
+
+void MotorControlApp::setPassiveTorqueDebug(bool enabled) {
+  passive_torque_debug_enabled_ = enabled;
 }
 
 void MotorControlApp::setMotionDownsample(unsigned int downsample) {
@@ -263,6 +279,7 @@ void MotorControlApp::updatePassiveTorqueTarget() {
   const float abs_velocity = fabsf(velocity);
   const float enter_threshold = max(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_);
   const float exit_threshold = min(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_);
+  const bool was_active = passive_torque_active_;
 
   if (passive_torque_active_) {
     if (abs_velocity <= exit_threshold) {
@@ -274,6 +291,10 @@ void MotorControlApp::updatePassiveTorqueTarget() {
 
   if (!passive_torque_active_) {
     motor_.target = 0.0f;
+    if (was_active) {
+      passive_torque_direction_ = 0;
+      reportPassiveTorqueDebug("exit", velocity, 0.0f);
+    }
     return;
   }
 
@@ -282,6 +303,15 @@ void MotorControlApp::updatePassiveTorqueTarget() {
       torque_nm / motorKtNmPerAmp(),
       -motor_.current_limit,
       motor_.current_limit);
+  const int direction = velocity > 0.0f ? 1 : -1;
+
+  if (!was_active) {
+    reportPassiveTorqueDebug("enter", velocity, iq_target);
+  } else if (direction != passive_torque_direction_) {
+    reportPassiveTorqueDebug("reverse", velocity, iq_target);
+  }
+
+  passive_torque_direction_ = direction;
   motor_.target = iq_target;
 }
 
@@ -293,6 +323,11 @@ void MotorControlApp::reportReleaseMode() {
 void MotorControlApp::reportPassiveTorqueMode() {
   Serial.print(F("PassiveTorqueMode:"));
   Serial.println(passive_torque_mode_ ? 1 : 0);
+}
+
+void MotorControlApp::reportPassiveTorqueDebugEnabled() {
+  Serial.print(F("PassiveTorqueDebug:"));
+  Serial.println(passive_torque_debug_enabled_ ? 1 : 0);
 }
 
 void MotorControlApp::reportPassiveTorqueTargetNm() {
@@ -308,6 +343,29 @@ void MotorControlApp::reportPassiveTorqueVelOn() {
 void MotorControlApp::reportPassiveTorqueVelOff() {
   Serial.print(F("PassiveTorqueVelOff:"));
   Serial.println(passive_torque_vel_off_rad_s_, 4);
+}
+
+void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
+                                               float velocity,
+                                               float iq_target) const {
+  if (!passive_torque_debug_enabled_) {
+    return;
+  }
+  Serial.print(F("[PassiveTorque] "));
+  Serial.print(phase);
+  Serial.print(F(" | angle="));
+  Serial.print(motor_.shaft_angle, 4);
+  Serial.print(F(" rad"));
+  Serial.print(F(" | vel="));
+  Serial.print(velocity, 4);
+  Serial.print(F(" rad/s | enter="));
+  Serial.print(max(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_), 4);
+  Serial.print(F(" | exit="));
+  Serial.print(min(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_), 4);
+  Serial.print(F(" | torque="));
+  Serial.print(passive_torque_target_nm_, 4);
+  Serial.print(F(" Nm | iq="));
+  Serial.println(iq_target, 4);
 }
 
 void MotorControlApp::reportMotionDownsample() {

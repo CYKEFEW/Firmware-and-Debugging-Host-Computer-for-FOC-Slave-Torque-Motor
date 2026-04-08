@@ -64,6 +64,7 @@ class MotorControlApp {
   void initializeCurrentSense();
   void setReleaseMode(bool enabled);
   void setPassiveTorqueMode(bool enabled);
+  void setPassiveTorqueDebug(bool enabled);
   void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
   void setPassiveTorqueVelOn(float velocity_threshold);
@@ -73,9 +74,13 @@ class MotorControlApp {
   void updatePassiveTorqueTarget();
   void reportReleaseMode();
   void reportPassiveTorqueMode();
+  void reportPassiveTorqueDebugEnabled();
   void reportPassiveTorqueTargetNm();
   void reportPassiveTorqueVelOn();
   void reportPassiveTorqueVelOff();
+  void reportPassiveTorqueDebug(const char* phase,
+                                float velocity,
+                                float iq_target) const;
   float clampPassiveTorqueTargetNm(float target_nm) const;
   float motorKtNmPerAmp() const;
 
@@ -90,7 +95,9 @@ class MotorControlApp {
   Commander command_;
   bool release_mode_ = false;
   bool passive_torque_mode_ = false;
+  bool passive_torque_debug_enabled_ = false;
   bool passive_torque_active_ = false;
+  int passive_torque_direction_ = 0;
   unsigned int motion_downsample_ = 0;
   float passive_torque_target_nm_;
   float passive_torque_vel_on_rad_s_;

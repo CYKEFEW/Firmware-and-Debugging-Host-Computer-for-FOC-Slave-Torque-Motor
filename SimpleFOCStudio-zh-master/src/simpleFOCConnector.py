@@ -188,6 +188,7 @@ class SimpleFOCDevice:
             self.passiveTorqueTargetNm = 0.05
             self.passiveTorqueVelOn = 0.2
             self.passiveTorqueVelOff = 0.1
+            self.passiveTorqueDebugEnabled = False
             self.modulationType = 0
             self.modulationCentered = 1
 
@@ -658,6 +659,12 @@ class SimpleFOCDevice:
                 self.passiveTorqueVelOff = float(targetvalue)
             self.setCommand('ZW', str(targetvalue))
 
+    def sendPassiveTorqueDebug(self, targetvalue):
+        if self.isConnected:
+            if targetvalue != '':
+                self.passiveTorqueDebugEnabled = bool(int(float(targetvalue)))
+            self.setCommand('ZY', str(targetvalue))
+
             
     def sendModulationCentered(self, targetvalue):
         if self.isConnected:
@@ -871,6 +878,9 @@ class SimpleFOCDevice:
 
     def parsePassiveTorqueVelOffResponse(self, comandResponse):
         self.passiveTorqueVelOff = float(comandResponse.replace('PassiveTorqueVelOff:', ''))
+
+    def parsePassiveTorqueDebugResponse(self, comandResponse):
+        self.passiveTorqueDebugEnabled = bool(int(float(comandResponse.replace('PassiveTorqueDebug:', ''))))
             
     def parsePWMModResponse(self, comandResponse):
         if 'center' in comandResponse:
@@ -953,6 +963,8 @@ class SimpleFOCDevice:
             self.parsePassiveTorqueVelOnResponse(comandResponse)
         elif 'PassiveTorqueVelOff' in comandResponse:
             self.parsePassiveTorqueVelOffResponse(comandResponse)
+        elif 'PassiveTorqueDebug' in comandResponse:
+            self.parsePassiveTorqueDebugResponse(comandResponse)
         elif 'PassiveTorqueMode' in comandResponse:
             self.parsePassiveTorqueModeResponse(comandResponse)
         elif 'PassiveTorqueTarget' in comandResponse:
