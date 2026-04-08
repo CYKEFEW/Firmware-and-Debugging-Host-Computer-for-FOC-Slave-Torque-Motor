@@ -14,7 +14,10 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.device = SimpleFOCDevice.getInstance()
         self._targetDirty = False
         self._maxAngleDirty = False
-        self._updateRateDirty = False
+        self._calculationRateDirty = False
+        self._followPidPDirty = False
+        self._followPidIDirty = False
+        self._followPidDDirty = False
 
         self.setObjectName('joggingControl')
         self.setTitle('点动控制')
@@ -100,20 +103,67 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.applyMaxAngleButton.clicked.connect(self.applyMaxAngle)
         self.gridLayout.addWidget(self.applyMaxAngleButton, 3, 4)
 
-        self.updateRateLabel = QtWidgets.QLabel('判定频率[Hz]:', self)
-        self.gridLayout.addWidget(self.updateRateLabel, 4, 0, 1, 2)
+        self.calculationRateLabel = QtWidgets.QLabel('计算频率[Hz]:', self)
+        self.gridLayout.addWidget(self.calculationRateLabel, 4, 0, 1, 2)
 
-        self.updateRateEdit = QtWidgets.QLineEdit(self)
-        self.updateRateEdit.setValidator(int_validator)
-        self.updateRateEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.updateRateEdit.setText('1000')
-        self.updateRateEdit.textEdited.connect(self._markUpdateRateDirty)
-        self.updateRateEdit.returnPressed.connect(self.applyUpdateRate)
-        self.gridLayout.addWidget(self.updateRateEdit, 4, 2, 1, 2)
+        self.calculationRateEdit = QtWidgets.QLineEdit(self)
+        self.calculationRateEdit.setValidator(int_validator)
+        self.calculationRateEdit.setAlignment(QtCore.Qt.AlignCenter)
+        self.calculationRateEdit.setText('1000')
+        self.calculationRateEdit.textEdited.connect(
+            self._markCalculationRateDirty)
+        self.calculationRateEdit.returnPressed.connect(
+            self.applyCalculationRate)
+        self.gridLayout.addWidget(self.calculationRateEdit, 4, 2, 1, 2)
 
-        self.applyUpdateRateButton = QtWidgets.QPushButton('应用')
-        self.applyUpdateRateButton.clicked.connect(self.applyUpdateRate)
-        self.gridLayout.addWidget(self.applyUpdateRateButton, 4, 4)
+        self.applyCalculationRateButton = QtWidgets.QPushButton('应用')
+        self.applyCalculationRateButton.clicked.connect(self.applyCalculationRate)
+        self.gridLayout.addWidget(self.applyCalculationRateButton, 4, 4)
+
+        self.followPidPLabel = QtWidgets.QLabel('跟随 PID P:', self)
+        self.gridLayout.addWidget(self.followPidPLabel, 5, 0, 1, 2)
+
+        self.followPidPEdit = QtWidgets.QLineEdit(self)
+        self.followPidPEdit.setValidator(float_validator)
+        self.followPidPEdit.setAlignment(QtCore.Qt.AlignCenter)
+        self.followPidPEdit.setText('0.25')
+        self.followPidPEdit.textEdited.connect(self._markFollowPidPDirty)
+        self.followPidPEdit.returnPressed.connect(self.applyFollowPidP)
+        self.gridLayout.addWidget(self.followPidPEdit, 5, 2, 1, 2)
+
+        self.applyFollowPidPButton = QtWidgets.QPushButton('应用')
+        self.applyFollowPidPButton.clicked.connect(self.applyFollowPidP)
+        self.gridLayout.addWidget(self.applyFollowPidPButton, 5, 4)
+
+        self.followPidILabel = QtWidgets.QLabel('跟随 PID I:', self)
+        self.gridLayout.addWidget(self.followPidILabel, 6, 0, 1, 2)
+
+        self.followPidIEdit = QtWidgets.QLineEdit(self)
+        self.followPidIEdit.setValidator(float_validator)
+        self.followPidIEdit.setAlignment(QtCore.Qt.AlignCenter)
+        self.followPidIEdit.setText('0.0')
+        self.followPidIEdit.textEdited.connect(self._markFollowPidIDirty)
+        self.followPidIEdit.returnPressed.connect(self.applyFollowPidI)
+        self.gridLayout.addWidget(self.followPidIEdit, 6, 2, 1, 2)
+
+        self.applyFollowPidIButton = QtWidgets.QPushButton('应用')
+        self.applyFollowPidIButton.clicked.connect(self.applyFollowPidI)
+        self.gridLayout.addWidget(self.applyFollowPidIButton, 6, 4)
+
+        self.followPidDLabel = QtWidgets.QLabel('跟随 PID D:', self)
+        self.gridLayout.addWidget(self.followPidDLabel, 7, 0, 1, 2)
+
+        self.followPidDEdit = QtWidgets.QLineEdit(self)
+        self.followPidDEdit.setValidator(float_validator)
+        self.followPidDEdit.setAlignment(QtCore.Qt.AlignCenter)
+        self.followPidDEdit.setText('0.0')
+        self.followPidDEdit.textEdited.connect(self._markFollowPidDDirty)
+        self.followPidDEdit.returnPressed.connect(self.applyFollowPidD)
+        self.gridLayout.addWidget(self.followPidDEdit, 7, 2, 1, 2)
+
+        self.applyFollowPidDButton = QtWidgets.QPushButton('应用')
+        self.applyFollowPidDButton.clicked.connect(self.applyFollowPidD)
+        self.gridLayout.addWidget(self.applyFollowPidDButton, 7, 4)
 
         self.disableUI()
         self.refreshModeUi()
@@ -150,36 +200,78 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
     def _markMaxAngleDirty(self, _text):
         self._maxAngleDirty = True
 
-    def _markUpdateRateDirty(self, _text):
-        self._updateRateDirty = True
+    def _markCalculationRateDirty(self, _text):
+        self._calculationRateDirty = True
+
+    def _markFollowPidPDirty(self, _text):
+        self._followPidPDirty = True
+
+    def _markFollowPidIDirty(self, _text):
+        self._followPidIDirty = True
+
+    def _markFollowPidDDirty(self, _text):
+        self._followPidDDirty = True
 
     def refreshModeUi(self):
         if self._isPassiveTorqueMode():
             self.incrementLabel.setText('力矩步进[Nm]:')
             self.targetLabel.setText('目标阻尼力矩[Nm]:')
+
             self.maxAngleLabel.show()
             self.maxAngleEdit.show()
             self.applyMaxAngleButton.show()
-            self.updateRateLabel.show()
-            self.updateRateEdit.show()
-            self.applyUpdateRateButton.show()
+            self.calculationRateLabel.show()
+            self.calculationRateEdit.show()
+            self.applyCalculationRateButton.show()
+            self.followPidPLabel.show()
+            self.followPidPEdit.show()
+            self.applyFollowPidPButton.show()
+            self.followPidILabel.show()
+            self.followPidIEdit.show()
+            self.applyFollowPidIButton.show()
+            self.followPidDLabel.show()
+            self.followPidDEdit.show()
+            self.applyFollowPidDButton.show()
+
             if not self._maxAngleDirty:
                 self._setLineEditValue(
                     self.maxAngleEdit,
                     self.device.passiveTorqueMaxDampingAngleDeg)
-            if not self._updateRateDirty:
+            if not self._calculationRateDirty:
                 self._setLineEditValue(
-                    self.updateRateEdit,
-                    self.device.passiveTorqueUpdateHz)
+                    self.calculationRateEdit,
+                    self.device.passiveTorqueCalculationHz)
+            if not self._followPidPDirty:
+                self._setLineEditValue(
+                    self.followPidPEdit,
+                    self.device.passiveTorqueFollowPidP)
+            if not self._followPidIDirty:
+                self._setLineEditValue(
+                    self.followPidIEdit,
+                    self.device.passiveTorqueFollowPidI)
+            if not self._followPidDDirty:
+                self._setLineEditValue(
+                    self.followPidDEdit,
+                    self.device.passiveTorqueFollowPidD)
         else:
             self.incrementLabel.setText('步进值:')
             self.targetLabel.setText('目标值:')
+
             self.maxAngleLabel.hide()
             self.maxAngleEdit.hide()
             self.applyMaxAngleButton.hide()
-            self.updateRateLabel.hide()
-            self.updateRateEdit.hide()
-            self.applyUpdateRateButton.hide()
+            self.calculationRateLabel.hide()
+            self.calculationRateEdit.hide()
+            self.applyCalculationRateButton.hide()
+            self.followPidPLabel.hide()
+            self.followPidPEdit.hide()
+            self.applyFollowPidPButton.hide()
+            self.followPidILabel.hide()
+            self.followPidIEdit.hide()
+            self.applyFollowPidIButton.hide()
+            self.followPidDLabel.hide()
+            self.followPidDEdit.hide()
+            self.applyFollowPidDButton.hide()
 
         if not self._targetDirty:
             self._setLineEditValue(self.targetEdit, self._currentValue())
@@ -222,15 +314,45 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
             self.maxAngleEdit,
             self.device.passiveTorqueMaxDampingAngleDeg)
 
-    def applyUpdateRate(self):
-        value = self.updateRateEdit.text().strip()
+    def applyCalculationRate(self):
+        value = self.calculationRateEdit.text().strip()
         if value == '':
             return
-        self.device.sendPassiveTorqueUpdateHz(value)
-        self._updateRateDirty = False
+        self.device.sendPassiveTorqueCalculationHz(value)
+        self._calculationRateDirty = False
         self._setLineEditValue(
-            self.updateRateEdit,
-            self.device.passiveTorqueUpdateHz)
+            self.calculationRateEdit,
+            self.device.passiveTorqueCalculationHz)
+
+    def applyFollowPidP(self):
+        value = self.followPidPEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowPidP(value)
+        self._followPidPDirty = False
+        self._setLineEditValue(
+            self.followPidPEdit,
+            self.device.passiveTorqueFollowPidP)
+
+    def applyFollowPidI(self):
+        value = self.followPidIEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowPidI(value)
+        self._followPidIDirty = False
+        self._setLineEditValue(
+            self.followPidIEdit,
+            self.device.passiveTorqueFollowPidI)
+
+    def applyFollowPidD(self):
+        value = self.followPidDEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowPidD(value)
+        self._followPidDDirty = False
+        self._setLineEditValue(
+            self.followPidDEdit,
+            self.device.passiveTorqueFollowPidD)
 
     def _stepCurrentValue(self, delta):
         increment = self.incrementEdit.text().strip()

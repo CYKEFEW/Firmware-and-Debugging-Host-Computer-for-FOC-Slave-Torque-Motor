@@ -34,7 +34,11 @@ struct MotorAppConfig {
   float kv_rpm_per_volt;
   float passive_torque_target_nm;
   float passive_torque_max_damping_angle_deg;
-  unsigned int passive_torque_update_hz;
+  float passive_torque_follow_deadzone_deg;
+  unsigned int passive_torque_calculation_hz;
+  float passive_torque_follow_pid_p;
+  float passive_torque_follow_pid_i;
+  float passive_torque_follow_pid_d;
   float pid_velocity_p;
   float pid_velocity_i;
   float pid_velocity_d;
@@ -68,7 +72,10 @@ class MotorControlApp {
   void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
   void setPassiveTorqueMaxDampingAngleDeg(float angle_deg);
-  void setPassiveTorqueUpdateHz(unsigned int update_hz);
+  void setPassiveTorqueCalculationHz(unsigned int calculation_hz);
+  void setPassiveTorqueFollowPidP(float value);
+  void setPassiveTorqueFollowPidI(float value);
+  void setPassiveTorqueFollowPidD(float value);
   void resetPassiveTorqueFieldReference();
   void updateReleasedState();
   void updatePassiveTorqueControl();
@@ -77,13 +84,17 @@ class MotorControlApp {
   void reportPassiveTorqueDebugEnabled();
   void reportPassiveTorqueTargetNm();
   void reportPassiveTorqueMaxDampingAngleDeg();
-  void reportPassiveTorqueUpdateHz();
+  void reportPassiveTorqueCalculationHz();
+  void reportPassiveTorqueFollowPidP();
+  void reportPassiveTorqueFollowPidI();
+  void reportPassiveTorqueFollowPidD();
   void reportPassiveTorqueDampingAngleDeg();
   void reportMotionDownsample();
   void reportPassiveTorqueDebug(const char* phase, float iq_target) const;
   float clampPassiveTorqueTargetNm(float target_nm) const;
   float motorKtNmPerAmp() const;
   float maxPassiveTorqueDampingAngleRad() const;
+  float passiveFieldFollowDeadzoneRad() const;
 
   static MotorControlApp* active_instance_;
 
@@ -100,8 +111,14 @@ class MotorControlApp {
   unsigned int motion_downsample_ = 0;
   float passive_torque_target_nm_;
   float passive_torque_max_damping_angle_deg_;
-  unsigned int passive_torque_update_hz_;
+  float passive_torque_follow_deadzone_deg_;
+  unsigned int passive_torque_calculation_hz_;
+  float passive_torque_follow_pid_p_;
+  float passive_torque_follow_pid_i_;
+  float passive_torque_follow_pid_d_;
   unsigned long passive_torque_last_update_us_ = 0;
   float passive_field_angle_ref_rad_ = 0.0f;
   float passive_torque_damping_angle_rad_ = 0.0f;
+  float passive_follow_pid_integral_ = 0.0f;
+  float passive_follow_pid_prev_error_ = 0.0f;
 };
