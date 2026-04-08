@@ -1,41 +1,41 @@
 #include "motor_control_app.h"
 
 namespace {
-// 基本硬件参数
-constexpr int kPolePairs = 7; // 电机极对数
+// 基础硬件参数
+constexpr int kPolePairs = 7;                  // 电机极对数
 constexpr float kMotorKvRpmPerVolt = 137.75f; // 电机 KV
-constexpr float kPowerSupplyVoltage = 12.8f; // 驱动母线电压
-constexpr float kCurrentLimitAmp = 1.8f; // 电流限制，单位 A
+constexpr float kPowerSupplyVoltage = 12.8f;   // 驱动母线电压 [V]
+constexpr float kCurrentLimitAmp = 1.8f;       // 电流限制 [A]
 
-// 从动力矩默认参数
-constexpr float kPassiveTorqueTargetNm = 0.05f; // 默认从动力矩，单位 Nm
-constexpr float kPassiveTorqueVelOnRadPerSec = 1.20f; // 起控速度阈值
-constexpr float kPassiveTorqueVelOffRadPerSec = 0.60f; // 释放速度阈值
+// 从动力矩控制默认参数
+constexpr float kPassiveTorqueTargetNm = 0.05f;          // 目标阻尼力矩 [Nm]
+constexpr float kPassiveTorqueMaxAngleDeg = 1.0f;        // 最大磁场阻尼角 [deg]
+constexpr unsigned int kPassiveTorqueUpdateHz = 1000;    // 判定频率 [Hz]
 
-// 运动控制降采样，0 表示不降采样，1 表示每 2 个控制周期执行一次运动控制，以此类推
-constexpr unsigned int kMotionDownsample = 0;
+// 运动控制参数
+constexpr unsigned int kMotionDownsample = 0; // 0 表示不降采样
 
 // 传感器与驱动引脚
-constexpr int kI2cSdaPin = 23;  // I2C SDA 引脚
-constexpr int kI2cSclPin = 5;   // I2C SCL 引脚
-constexpr int kPwmUPin = 26;    // U 相 PWM 引脚
-constexpr int kPwmVPin = 27;    // V 相 PWM 引脚
-constexpr int kPwmWPin = 14;    // W 相 PWM 引脚
-constexpr int kDriverEnablePin = 12; // 驱动使能引脚
-constexpr int kCurrentAPin = 35;  // A 相电流采样引脚
-constexpr int kCurrentBPin = 34;  // B 相电流采样引脚
+constexpr int kI2cSdaPin = 23;         // I2C SDA
+constexpr int kI2cSclPin = 5;          // I2C SCL
+constexpr int kPwmUPin = 26;           // U 相 PWM
+constexpr int kPwmVPin = 27;           // V 相 PWM
+constexpr int kPwmWPin = 14;           // W 相 PWM
+constexpr int kDriverEnablePin = 12;   // 驱动使能
+constexpr int kCurrentAPin = 35;       // A 相电流采样
+constexpr int kCurrentBPin = 34;       // B 相电流采样
 
 // 当前工程的电机应用配置
 const MotorAppConfig kMotorConfig = {
     kPolePairs,               // 电机极对数
-    kPwmUPin,                 // U 相 PWM 引脚
-    kPwmVPin,                 // V 相 PWM 引脚
-    kPwmWPin,                 // W 相 PWM 引脚
-    kDriverEnablePin,         // 驱动使能引脚
-    kCurrentAPin,             // A 相电流采样引脚
-    kCurrentBPin,             // B 相电流采样引脚
-    kI2cSdaPin,               // I2C SDA 引脚
-    kI2cSclPin,               // I2C SCL 引脚
+    kPwmUPin,                 // U 相 PWM
+    kPwmVPin,                 // V 相 PWM
+    kPwmWPin,                 // W 相 PWM
+    kDriverEnablePin,         // 驱动使能
+    kCurrentAPin,             // A 相电流采样
+    kCurrentBPin,             // B 相电流采样
+    kI2cSdaPin,               // I2C SDA
+    kI2cSclPin,               // I2C SCL
     32,                       // 需要上拉的 GPIO32
     33,                       // 需要上拉的 GPIO33
     25,                       // 需要上拉的 GPIO25
@@ -46,17 +46,17 @@ const MotorAppConfig kMotorConfig = {
     0x0C,                     // AS5600 角度高字节寄存器
     4096,                     // AS5600 每圈计数
     100000UL,                 // I2C 频率
-    20,                       // I2C 超时，单位 ms
-    kPowerSupplyVoltage,      // 驱动母线电压
-    0.01f,                    // 采样分流电阻，单位欧姆
+    20,                       // I2C 超时 [ms]
+    kPowerSupplyVoltage,      // 驱动母线电压 [V]
+    0.01f,                    // 分流电阻 [ohm]
     50.0f,                    // 电流采样放大倍数
-    kCurrentLimitAmp,         // 电流限制，单位 A
-    20.0f,                    // 电压限制，单位 V
-    20.0f,                    // 速度限制，单位 rad/s
+    kCurrentLimitAmp,         // 电流限制 [A]
+    20.0f,                    // 电压限制 [V]
+    20.0f,                    // 速度限制 [rad/s]
     kMotorKvRpmPerVolt,       // 电机 KV
-    kPassiveTorqueTargetNm,   // 默认从动力矩，单位 Nm
-    kPassiveTorqueVelOnRadPerSec,   // 起控速度阈值
-    kPassiveTorqueVelOffRadPerSec,  // 释放速度阈值
+    kPassiveTorqueTargetNm,   // 目标阻尼力矩 [Nm]
+    kPassiveTorqueMaxAngleDeg,// 最大磁场阻尼角 [deg]
+    kPassiveTorqueUpdateHz,   // 判定频率 [Hz]
     0.021f,                   // 速度环 P
     0.12f,                    // 速度环 I
     0.0f,                     // 速度环 D

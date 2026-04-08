@@ -3,11 +3,11 @@
 MotorControlApp* MotorControlApp::active_instance_ = nullptr;
 
 namespace {
-// 自定义命令也按 Commander 的哨兵规则处理，避免查询命令被误当成设置命令
+// 自定义命令也遵循 Commander 的空参数约定，避免查询命令被误判成设置命令。
 bool IsCommandSentinel(char ch) {
   return ch == '\0' || ch == '\n' || ch == '\r';
 }
-}
+}  // namespace
 
 MotorControlApp::MotorControlApp(const MotorAppConfig& config)
     : config_(config),
@@ -32,8 +32,9 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
       command_(Serial),
       motion_downsample_(config.motion_downsample),
       passive_torque_target_nm_(config.passive_torque_target_nm),
-      passive_torque_vel_on_rad_s_(config.passive_torque_vel_on_rad_s),
-      passive_torque_vel_off_rad_s_(config.passive_torque_vel_off_rad_s) {
+      passive_torque_max_damping_angle_deg_(
+          config.passive_torque_max_damping_angle_deg),
+      passive_torque_update_hz_(config.passive_torque_update_hz) {
   active_instance_ = this;
 }
 
@@ -48,21 +49,22 @@ void MotorControlApp::setup() {
   motor_.init();
   motor_.initFOC();
   motor_.target = 0.0f;
+  resetPassiveTorqueFieldReference();
 
   command_.add(config_.command_id, handleMotorCommandStatic, "motor");
 
-  Serial.println(F("电机自检完成，目标值已设为0。"));
-  Serial.printf("[I2C] AS5600总线: SDA=%d SCL=%d 频率=%luHz 超时=%ums\n",
+  Serial.println(F("Motor self-check finished, target set to 0."));
+  Serial.printf("[I2C] SDA=%d SCL=%d clk=%luHz timeout=%ums\n",
                 config_.i2c_sda_pin,
                 config_.i2c_scl_pin,
                 (unsigned long)config_.i2c_clock_hz,
                 (unsigned)config_.i2c_timeout_ms);
-  Serial.printf("[CTRL] 电流限制=%.2fA, Kt=%.4fNm/A, 从动力矩=%.3fNm, 起控阈值=%.3frad/s, 释放阈值=%.3frad/s\n",
-                motor_.current_limit,
-                motorKtNmPerAmp(),
-                passive_torque_target_nm_,
-                passive_torque_vel_on_rad_s_,
-                passive_torque_vel_off_rad_s_);
+  Serial.printf(
+      "[PassiveTorque] target=%.4fNm max_angle=%.3fdeg logic=%uHz current_limit=%.2fA\n",
+      passive_torque_target_nm_,
+      passive_torque_max_damping_angle_deg_,
+      passive_torque_update_hz_,
+      motor_.current_limit);
 
   _delay(1000);
 }
@@ -72,7 +74,7 @@ void MotorControlApp::loop() {
     updateReleasedState();
   } else if (passive_torque_mode_) {
     motor_.loopFOC();
-    updatePassiveTorqueTarget();
+    updatePassiveTorqueControl();
     motor_.move();
   } else {
     motor_.loopFOC();
@@ -114,19 +116,25 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     return;
   }
 
-  if (cmd && cmd[0] == 'Z' && cmd[1] == 'V') {
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'A') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueVelOn(atof(cmd + 2));
+      setPassiveTorqueMaxDampingAngleDeg(atof(cmd + 2));
     }
-    reportPassiveTorqueVelOn();
+    reportPassiveTorqueMaxDampingAngleDeg();
     return;
   }
 
-  if (cmd && cmd[0] == 'Z' && cmd[1] == 'W') {
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'F') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueVelOff(atof(cmd + 2));
+      setPassiveTorqueUpdateHz(
+          static_cast<unsigned int>(max(1, atoi(cmd + 2))));
     }
-    reportPassiveTorqueVelOff();
+    reportPassiveTorqueUpdateHz();
+    return;
+  }
+
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'G') {
+    reportPassiveTorqueDampingAngleDeg();
     return;
   }
 
@@ -149,7 +157,8 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
   if (cmd && cmd[0] == 'E' && !IsCommandSentinel(cmd[1])) {
     release_mode_ = false;
     passive_torque_mode_ = false;
-    passive_torque_active_ = false;
+    passive_torque_damping_angle_rad_ = 0.0f;
+    motor_.target = 0.0f;
   }
 
   command_.motor(&motor_, cmd);
@@ -198,10 +207,11 @@ void MotorControlApp::initializeCurrentSense() {
 
 void MotorControlApp::setReleaseMode(bool enabled) {
   release_mode_ = enabled;
+  passive_torque_damping_angle_rad_ = 0.0f;
+  motor_.target = 0.0f;
+
   if (release_mode_) {
     passive_torque_mode_ = false;
-    passive_torque_active_ = false;
-    passive_torque_direction_ = 0;
     driver_.disable();
   } else if (motor_.enabled) {
     driver_.enable();
@@ -210,21 +220,22 @@ void MotorControlApp::setReleaseMode(bool enabled) {
 
 void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   passive_torque_mode_ = enabled;
-  passive_torque_active_ = false;
-  passive_torque_direction_ = 0;
+  motor_.target = 0.0f;
+  passive_torque_damping_angle_rad_ = 0.0f;
+
   if (passive_torque_mode_) {
     release_mode_ = false;
     motor_.controller = MotionControlType::torque;
     motor_.torque_controller = TorqueControlType::foc_current;
-    motor_.target = 0.0f;
     if (!motor_.enabled) {
       motor_.enable();
     }
     driver_.enable();
-    reportPassiveTorqueDebug("enable", 0.0f, 0.0f);
+    resetPassiveTorqueFieldReference();
+    reportPassiveTorqueDebug("enable", 0.0f);
   } else {
-    motor_.target = 0.0f;
-    reportPassiveTorqueDebug("disable", 0.0f, 0.0f);
+    resetPassiveTorqueFieldReference();
+    reportPassiveTorqueDebug("disable", 0.0f);
   }
 }
 
@@ -241,12 +252,18 @@ void MotorControlApp::setPassiveTorqueTargetNm(float target_nm) {
   passive_torque_target_nm_ = clampPassiveTorqueTargetNm(target_nm);
 }
 
-void MotorControlApp::setPassiveTorqueVelOn(float velocity_threshold) {
-  passive_torque_vel_on_rad_s_ = max(0.0f, velocity_threshold);
+void MotorControlApp::setPassiveTorqueMaxDampingAngleDeg(float angle_deg) {
+  passive_torque_max_damping_angle_deg_ = constrain(fabsf(angle_deg), 0.05f, 45.0f);
 }
 
-void MotorControlApp::setPassiveTorqueVelOff(float velocity_threshold) {
-  passive_torque_vel_off_rad_s_ = max(0.0f, velocity_threshold);
+void MotorControlApp::setPassiveTorqueUpdateHz(unsigned int update_hz) {
+  passive_torque_update_hz_ = constrain(update_hz, 1u, 5000u);
+}
+
+void MotorControlApp::resetPassiveTorqueFieldReference() {
+  passive_field_angle_ref_rad_ = motor_.shaftAngle();
+  passive_torque_damping_angle_rad_ = 0.0f;
+  passive_torque_last_update_us_ = micros();
 }
 
 void MotorControlApp::updateReleasedState() {
@@ -256,6 +273,7 @@ void MotorControlApp::updateReleasedState() {
   motor_.electrical_angle = motor_.electricalAngle();
   motor_.voltage.q = 0.0f;
   motor_.voltage.d = 0.0f;
+  passive_torque_damping_angle_rad_ = 0.0f;
 
   if (motor_.current_sense) {
     if (motor_.torque_controller == TorqueControlType::dc_current) {
@@ -272,47 +290,45 @@ void MotorControlApp::updateReleasedState() {
   driver_.disable();
 }
 
-void MotorControlApp::updatePassiveTorqueTarget() {
-  motor_.shaft_angle = motor_.shaftAngle();
-  motor_.shaft_velocity = motor_.shaftVelocity();
-  const float velocity = motor_.shaft_velocity;
-  const float abs_velocity = fabsf(velocity);
-  const float enter_threshold = max(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_);
-  const float exit_threshold = min(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_);
-  const bool was_active = passive_torque_active_;
-
-  if (passive_torque_active_) {
-    if (abs_velocity <= exit_threshold) {
-      passive_torque_active_ = false;
-    }
-  } else if (abs_velocity >= enter_threshold) {
-    passive_torque_active_ = true;
-  }
-
-  if (!passive_torque_active_) {
-    motor_.target = 0.0f;
-    if (was_active) {
-      passive_torque_direction_ = 0;
-      reportPassiveTorqueDebug("exit", velocity, 0.0f);
-    }
+void MotorControlApp::updatePassiveTorqueControl() {
+  const unsigned long now_us = micros();
+  const unsigned long update_interval_us =
+      max(1UL, 1000000UL / max(1u, passive_torque_update_hz_));
+  if ((now_us - passive_torque_last_update_us_) < update_interval_us) {
     return;
   }
+  passive_torque_last_update_us_ = now_us;
 
-  const float torque_nm = velocity > 0.0f ? -passive_torque_target_nm_ : passive_torque_target_nm_;
+  const float current_angle = motor_.shaft_angle;
+  const float max_damping_angle_rad = maxPassiveTorqueDampingAngleRad();
+  float damping_angle = current_angle - passive_field_angle_ref_rad_;
+  bool field_followed = false;
+
+  if (damping_angle > max_damping_angle_rad) {
+    passive_field_angle_ref_rad_ = current_angle - max_damping_angle_rad;
+    damping_angle = max_damping_angle_rad;
+    field_followed = true;
+  } else if (damping_angle < -max_damping_angle_rad) {
+    passive_field_angle_ref_rad_ = current_angle + max_damping_angle_rad;
+    damping_angle = -max_damping_angle_rad;
+    field_followed = true;
+  }
+
+  passive_torque_damping_angle_rad_ = damping_angle;
+
+  const float torque_scale =
+      max_damping_angle_rad > 1e-6f ? damping_angle / max_damping_angle_rad : 0.0f;
+  const float torque_nm = -torque_scale * passive_torque_target_nm_;
   const float iq_target = constrain(
       torque_nm / motorKtNmPerAmp(),
       -motor_.current_limit,
       motor_.current_limit);
-  const int direction = velocity > 0.0f ? 1 : -1;
 
-  if (!was_active) {
-    reportPassiveTorqueDebug("enter", velocity, iq_target);
-  } else if (direction != passive_torque_direction_) {
-    reportPassiveTorqueDebug("reverse", velocity, iq_target);
-  }
-
-  passive_torque_direction_ = direction;
   motor_.target = iq_target;
+
+  if (field_followed) {
+    reportPassiveTorqueDebug("follow", iq_target);
+  }
 }
 
 void MotorControlApp::reportReleaseMode() {
@@ -335,42 +351,46 @@ void MotorControlApp::reportPassiveTorqueTargetNm() {
   Serial.println(passive_torque_target_nm_, 4);
 }
 
-void MotorControlApp::reportPassiveTorqueVelOn() {
-  Serial.print(F("PassiveTorqueVelOn:"));
-  Serial.println(passive_torque_vel_on_rad_s_, 4);
+void MotorControlApp::reportPassiveTorqueMaxDampingAngleDeg() {
+  Serial.print(F("PassiveTorqueMaxAngle:"));
+  Serial.println(passive_torque_max_damping_angle_deg_, 4);
 }
 
-void MotorControlApp::reportPassiveTorqueVelOff() {
-  Serial.print(F("PassiveTorqueVelOff:"));
-  Serial.println(passive_torque_vel_off_rad_s_, 4);
+void MotorControlApp::reportPassiveTorqueUpdateHz() {
+  Serial.print(F("PassiveTorqueUpdateHz:"));
+  Serial.println(passive_torque_update_hz_);
 }
 
-void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
-                                               float velocity,
-                                               float iq_target) const {
-  if (!passive_torque_debug_enabled_) {
-    return;
-  }
-  Serial.print(F("[PassiveTorque] "));
-  Serial.print(phase);
-  Serial.print(F(" | angle="));
-  Serial.print(motor_.shaft_angle, 4);
-  Serial.print(F(" rad"));
-  Serial.print(F(" | vel="));
-  Serial.print(velocity, 4);
-  Serial.print(F(" rad/s | enter="));
-  Serial.print(max(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_), 4);
-  Serial.print(F(" | exit="));
-  Serial.print(min(passive_torque_vel_on_rad_s_, passive_torque_vel_off_rad_s_), 4);
-  Serial.print(F(" | torque="));
-  Serial.print(passive_torque_target_nm_, 4);
-  Serial.print(F(" Nm | iq="));
-  Serial.println(iq_target, 4);
+void MotorControlApp::reportPassiveTorqueDampingAngleDeg() {
+  Serial.print(F("PassiveTorqueDampingAngle:"));
+  Serial.println(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
 }
 
 void MotorControlApp::reportMotionDownsample() {
   Serial.print(F("Motion: downsample: "));
   Serial.println(motion_downsample_);
+}
+
+void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
+                                               float iq_target) const {
+  if (!passive_torque_debug_enabled_) {
+    return;
+  }
+
+  Serial.print(F("[PassiveTorque] "));
+  Serial.print(phase);
+  Serial.print(F(" | mech="));
+  Serial.print(motor_.shaft_angle, 4);
+  Serial.print(F(" rad | field="));
+  Serial.print(passive_field_angle_ref_rad_, 4);
+  Serial.print(F(" rad | damping="));
+  Serial.print(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
+  Serial.print(F(" deg | max="));
+  Serial.print(passive_torque_max_damping_angle_deg_, 4);
+  Serial.print(F(" deg | torque="));
+  Serial.print(passive_torque_target_nm_, 4);
+  Serial.print(F(" Nm | iq="));
+  Serial.println(iq_target, 4);
 }
 
 float MotorControlApp::clampPassiveTorqueTargetNm(float target_nm) const {
@@ -380,4 +400,8 @@ float MotorControlApp::clampPassiveTorqueTargetNm(float target_nm) const {
 
 float MotorControlApp::motorKtNmPerAmp() const {
   return 60.0f / (_2PI * config_.kv_rpm_per_volt);
+}
+
+float MotorControlApp::maxPassiveTorqueDampingAngleRad() const {
+  return passive_torque_max_damping_angle_deg_ * DEG_TO_RAD;
 }

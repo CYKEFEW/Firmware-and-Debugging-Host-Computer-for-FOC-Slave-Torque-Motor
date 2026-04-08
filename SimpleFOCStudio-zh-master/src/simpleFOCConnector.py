@@ -186,8 +186,9 @@ class SimpleFOCDevice:
             self.releaseMode = False
             self.passiveTorqueMode = False
             self.passiveTorqueTargetNm = 0.05
-            self.passiveTorqueVelOn = 0.2
-            self.passiveTorqueVelOff = 0.1
+            self.passiveTorqueMaxDampingAngleDeg = 1.0
+            self.passiveTorqueUpdateHz = 1000
+            self.passiveTorqueDampingAngleDeg = 0.0
             self.passiveTorqueDebugEnabled = False
             self.modulationType = 0
             self.modulationCentered = 1
@@ -255,11 +256,18 @@ class SimpleFOCDevice:
         except KeyError:
             pass
         try:
-            self.passiveTorqueVelOn = float(jsonValue['passiveTorqueVelOn'])
+            self.passiveTorqueMaxDampingAngleDeg = float(
+                jsonValue['passiveTorqueMaxDampingAngleDeg'])
         except KeyError:
             pass
         try:
-            self.passiveTorqueVelOff = float(jsonValue['passiveTorqueVelOff'])
+            self.passiveTorqueUpdateHz = max(
+                1, int(float(jsonValue['passiveTorqueUpdateHz'])))
+        except KeyError:
+            pass
+        try:
+            self.passiveTorqueDampingAngleDeg = float(
+                jsonValue['passiveTorqueDampingAngleDeg'])
         except KeyError:
             pass
         try:
@@ -318,8 +326,9 @@ class SimpleFOCDevice:
             'releaseMode': self.releaseMode,
             'passiveTorqueMode': self.passiveTorqueMode,
             'passiveTorqueTargetNm': self.passiveTorqueTargetNm,
-            'passiveTorqueVelOn': self.passiveTorqueVelOn,
-            'passiveTorqueVelOff': self.passiveTorqueVelOff,
+            'passiveTorqueMaxDampingAngleDeg': self.passiveTorqueMaxDampingAngleDeg,
+            'passiveTorqueUpdateHz': self.passiveTorqueUpdateHz,
+            'passiveTorqueDampingAngleDeg': self.passiveTorqueDampingAngleDeg,
             'stateUpdateRateHz': self.stateUpdateRateHz,
             'sensorZeroOffset': self.sensorZeroOffset,
             'sensorElectricalZero': self.sensorElectricalZero,
@@ -623,6 +632,7 @@ class SimpleFOCDevice:
                 self.deviceStatus = int(targetvalue)
                 self.releaseMode = False
                 self.passiveTorqueMode = False
+                self.passiveTorqueDampingAngleDeg = 0.0
             self.setCommand('E', str(targetvalue))
 
     def sendReleaseMode(self, targetvalue):
@@ -631,6 +641,7 @@ class SimpleFOCDevice:
                 self.releaseMode = bool(int(float(targetvalue)))
                 if self.releaseMode:
                     self.passiveTorqueMode = False
+                    self.passiveTorqueDampingAngleDeg = 0.0
             self.setCommand('X', str(targetvalue))
 
     def sendPassiveTorqueMode(self, targetvalue):
@@ -639,6 +650,8 @@ class SimpleFOCDevice:
                 self.passiveTorqueMode = bool(int(float(targetvalue)))
                 if self.passiveTorqueMode:
                     self.releaseMode = False
+                else:
+                    self.passiveTorqueDampingAngleDeg = 0.0
             self.setCommand('ZM', str(targetvalue))
 
     def sendPassiveTorqueTarget(self, targetvalue):
@@ -647,17 +660,17 @@ class SimpleFOCDevice:
                 self.passiveTorqueTargetNm = float(targetvalue)
             self.setCommand('ZT', str(targetvalue))
 
-    def sendPassiveTorqueVelOn(self, targetvalue):
+    def sendPassiveTorqueMaxDampingAngle(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueVelOn = float(targetvalue)
-            self.setCommand('ZV', str(targetvalue))
+                self.passiveTorqueMaxDampingAngleDeg = float(targetvalue)
+            self.setCommand('ZA', str(targetvalue))
 
-    def sendPassiveTorqueVelOff(self, targetvalue):
+    def sendPassiveTorqueUpdateHz(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueVelOff = float(targetvalue)
-            self.setCommand('ZW', str(targetvalue))
+                self.passiveTorqueUpdateHz = max(1, int(float(targetvalue)))
+            self.setCommand('ZF', str(targetvalue))
 
     def sendPassiveTorqueDebug(self, targetvalue):
         if self.isConnected:
@@ -715,6 +728,8 @@ class SimpleFOCDevice:
     def updateStates(self):
         if self.isConnected:
             self.getCommand('MG7')
+            if self.passiveTorqueMode:
+                self.getCommand('ZG')
 
 
     def pushConfiguration(self):
@@ -804,9 +819,9 @@ class SimpleFOCDevice:
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueTarget('')
                 time.sleep(5 / 1000)
-                self.sendPassiveTorqueVelOn('')
+                self.sendPassiveTorqueMaxDampingAngle('')
                 time.sleep(5 / 1000)
-                self.sendPassiveTorqueVelOff('')
+                self.sendPassiveTorqueUpdateHz('')
                 time.sleep(5 / 1000)
                 self.sendDeviceStatus('')
             finally:
@@ -864,20 +879,29 @@ class SimpleFOCDevice:
         self.releaseMode = bool(int(float(comandResponse.replace('Release:', ''))))
         if self.releaseMode:
             self.passiveTorqueMode = False
+            self.passiveTorqueDampingAngleDeg = 0.0
 
     def parsePassiveTorqueModeResponse(self, comandResponse):
         self.passiveTorqueMode = bool(int(float(comandResponse.replace('PassiveTorqueMode:', ''))))
         if self.passiveTorqueMode:
             self.releaseMode = False
+        else:
+            self.passiveTorqueDampingAngleDeg = 0.0
 
     def parsePassiveTorqueTargetResponse(self, comandResponse):
         self.passiveTorqueTargetNm = float(comandResponse.replace('PassiveTorqueTarget:', ''))
 
-    def parsePassiveTorqueVelOnResponse(self, comandResponse):
-        self.passiveTorqueVelOn = float(comandResponse.replace('PassiveTorqueVelOn:', ''))
+    def parsePassiveTorqueMaxDampingAngleResponse(self, comandResponse):
+        self.passiveTorqueMaxDampingAngleDeg = float(
+            comandResponse.replace('PassiveTorqueMaxAngle:', ''))
 
-    def parsePassiveTorqueVelOffResponse(self, comandResponse):
-        self.passiveTorqueVelOff = float(comandResponse.replace('PassiveTorqueVelOff:', ''))
+    def parsePassiveTorqueUpdateHzResponse(self, comandResponse):
+        self.passiveTorqueUpdateHz = max(
+            1, int(float(comandResponse.replace('PassiveTorqueUpdateHz:', ''))))
+
+    def parsePassiveTorqueDampingAngleResponse(self, comandResponse):
+        self.passiveTorqueDampingAngleDeg = float(
+            comandResponse.replace('PassiveTorqueDampingAngle:', ''))
 
     def parsePassiveTorqueDebugResponse(self, comandResponse):
         self.passiveTorqueDebugEnabled = bool(int(float(comandResponse.replace('PassiveTorqueDebug:', ''))))
@@ -959,10 +983,12 @@ class SimpleFOCDevice:
         elif 'Motion' in comandResponse:
             comandResponse = comandResponse.replace('Motion:', '')
             self.parseMotionResponse(comandResponse)
-        elif 'PassiveTorqueVelOn' in comandResponse:
-            self.parsePassiveTorqueVelOnResponse(comandResponse)
-        elif 'PassiveTorqueVelOff' in comandResponse:
-            self.parsePassiveTorqueVelOffResponse(comandResponse)
+        elif 'PassiveTorqueMaxAngle' in comandResponse:
+            self.parsePassiveTorqueMaxDampingAngleResponse(comandResponse)
+        elif 'PassiveTorqueUpdateHz' in comandResponse:
+            self.parsePassiveTorqueUpdateHzResponse(comandResponse)
+        elif 'PassiveTorqueDampingAngle' in comandResponse:
+            self.parsePassiveTorqueDampingAngleResponse(comandResponse)
         elif 'PassiveTorqueDebug' in comandResponse:
             self.parsePassiveTorqueDebugResponse(comandResponse)
         elif 'PassiveTorqueMode' in comandResponse:
@@ -992,6 +1018,8 @@ class SimpleFOCDevice:
         if 'Monitor' in comandResponse:
             comandResponse = comandResponse.replace('Monitor |', '')
             self.parseMonitorResponse(comandResponse)
+        elif 'PassiveTorqueDampingAngle' in comandResponse:
+            self.parsePassiveTorqueDampingAngleResponse(comandResponse)
 
 
 class SerialPortReceiveHandler(QtCore.QThread):
@@ -1032,7 +1060,7 @@ class SerialPortReceiveHandler(QtCore.QThread):
             return False
             
     def isDataReceivedStates(self, data):
-        if 'Monitor' in data:
+        if 'Monitor' in data or 'PassiveTorqueDampingAngle' in data:
             return True
         else:
             return False

@@ -33,8 +33,8 @@ struct MotorAppConfig {
   float velocity_limit_rad_s;
   float kv_rpm_per_volt;
   float passive_torque_target_nm;
-  float passive_torque_vel_on_rad_s;
-  float passive_torque_vel_off_rad_s;
+  float passive_torque_max_damping_angle_deg;
+  unsigned int passive_torque_update_hz;
   float pid_velocity_p;
   float pid_velocity_i;
   float pid_velocity_d;
@@ -47,7 +47,7 @@ struct MotorAppConfig {
   char command_id;
 };
 
-// 电机应用层：封装初始化、运行循环和自定义 Commander 命令
+// 电机应用层：封装初始化、运行循环和自定义 Commander 命令。
 class MotorControlApp {
  public:
   explicit MotorControlApp(const MotorAppConfig& config);
@@ -67,22 +67,23 @@ class MotorControlApp {
   void setPassiveTorqueDebug(bool enabled);
   void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
-  void setPassiveTorqueVelOn(float velocity_threshold);
-  void setPassiveTorqueVelOff(float velocity_threshold);
-  void reportMotionDownsample();
+  void setPassiveTorqueMaxDampingAngleDeg(float angle_deg);
+  void setPassiveTorqueUpdateHz(unsigned int update_hz);
+  void resetPassiveTorqueFieldReference();
   void updateReleasedState();
-  void updatePassiveTorqueTarget();
+  void updatePassiveTorqueControl();
   void reportReleaseMode();
   void reportPassiveTorqueMode();
   void reportPassiveTorqueDebugEnabled();
   void reportPassiveTorqueTargetNm();
-  void reportPassiveTorqueVelOn();
-  void reportPassiveTorqueVelOff();
-  void reportPassiveTorqueDebug(const char* phase,
-                                float velocity,
-                                float iq_target) const;
+  void reportPassiveTorqueMaxDampingAngleDeg();
+  void reportPassiveTorqueUpdateHz();
+  void reportPassiveTorqueDampingAngleDeg();
+  void reportMotionDownsample();
+  void reportPassiveTorqueDebug(const char* phase, float iq_target) const;
   float clampPassiveTorqueTargetNm(float target_nm) const;
   float motorKtNmPerAmp() const;
+  float maxPassiveTorqueDampingAngleRad() const;
 
   static MotorControlApp* active_instance_;
 
@@ -96,10 +97,11 @@ class MotorControlApp {
   bool release_mode_ = false;
   bool passive_torque_mode_ = false;
   bool passive_torque_debug_enabled_ = false;
-  bool passive_torque_active_ = false;
-  int passive_torque_direction_ = 0;
   unsigned int motion_downsample_ = 0;
   float passive_torque_target_nm_;
-  float passive_torque_vel_on_rad_s_;
-  float passive_torque_vel_off_rad_s_;
+  float passive_torque_max_damping_angle_deg_;
+  unsigned int passive_torque_update_hz_;
+  unsigned long passive_torque_last_update_us_ = 0;
+  float passive_field_angle_ref_rad_ = 0.0f;
+  float passive_torque_damping_angle_rad_ = 0.0f;
 };
