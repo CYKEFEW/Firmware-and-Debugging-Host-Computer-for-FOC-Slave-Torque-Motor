@@ -17,6 +17,14 @@ constexpr float kPassiveTorqueFollowPidI = 0.0f;         // 跟随 PID 的 I
 constexpr float kPassiveTorqueFollowPidD = 0.0f;         // 跟随 PID 的 D
 
 // 运动控制参数
+constexpr float kCurrentQPidP = 3.0f;        // 电流 Q 环 P
+constexpr float kCurrentQPidI = 300.0f;      // 电流 Q 环 I
+constexpr float kCurrentQPidD = 0.0f;        // 电流 Q 环 D
+constexpr float kCurrentQLpfTf = 0.005f;     // 电流 Q 环低通滤波时间常数
+constexpr float kCurrentDPidP = 3.0f;        // 电流 D 环 P
+constexpr float kCurrentDPidI = 300.0f;      // 电流 D 环 I
+constexpr float kCurrentDPidD = 0.0f;        // 电流 D 环 D
+constexpr float kCurrentDLpfTf = 0.005f;     // 电流 D 环低通滤波时间常数
 constexpr unsigned int kMotionDownsample = 0;  // 0 表示不降采样
 
 // 传感器与驱动引脚
@@ -69,6 +77,14 @@ const MotorAppConfig kMotorConfig = {
     0.0f,                           // 速度环 D
     0.01f,                          // 速度低通滤波时间常数
     20.0f,                          // 角度环 P
+    kCurrentQPidP,                  // 电流 Q 环 P
+    kCurrentQPidI,                  // 电流 Q 环 I
+    kCurrentQPidD,                  // 电流 Q 环 D
+    kCurrentQLpfTf,                 // 电流 Q 环低通滤波时间常数
+    kCurrentDPidP,                  // 电流 D 环 P
+    kCurrentDPidI,                  // 电流 D 环 I
+    kCurrentDPidD,                  // 电流 D 环 D
+    kCurrentDLpfTf,                 // 电流 D 环低通滤波时间常数
     kMotionDownsample,              // 运动控制降采样
     static_cast<uint8_t>(_MON_TARGET | _MON_VEL | _MON_ANGLE | _MON_CURR_Q),
     0,                              // 监控降采样

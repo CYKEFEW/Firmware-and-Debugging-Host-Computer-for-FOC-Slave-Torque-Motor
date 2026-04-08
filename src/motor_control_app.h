@@ -44,6 +44,14 @@ struct MotorAppConfig {
   float pid_velocity_d;
   float lpf_velocity_tf;
   float p_angle_p;
+  float pid_current_q_p;
+  float pid_current_q_i;
+  float pid_current_q_d;
+  float lpf_current_q_tf;
+  float pid_current_d_p;
+  float pid_current_d_i;
+  float pid_current_d_d;
+  float lpf_current_d_tf;
   unsigned int motion_downsample;
   uint8_t monitor_variables;
   unsigned int monitor_downsample;

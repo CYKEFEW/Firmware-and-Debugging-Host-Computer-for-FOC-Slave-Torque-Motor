@@ -237,9 +237,17 @@ void MotorControlApp::initializeMotor() {
   motor_.PID_velocity.P = config_.pid_velocity_p;
   motor_.PID_velocity.I = config_.pid_velocity_i;
   motor_.PID_velocity.D = config_.pid_velocity_d;
+  motor_.PID_current_q.P = config_.pid_current_q_p;
+  motor_.PID_current_q.I = config_.pid_current_q_i;
+  motor_.PID_current_q.D = config_.pid_current_q_d;
+  motor_.PID_current_d.P = config_.pid_current_d_p;
+  motor_.PID_current_d.I = config_.pid_current_d_i;
+  motor_.PID_current_d.D = config_.pid_current_d_d;
   motor_.current_limit = config_.current_limit_a;
   motor_.voltage_limit = config_.voltage_limit_v;
   motor_.LPF_velocity.Tf = config_.lpf_velocity_tf;
+  motor_.LPF_current_q.Tf = config_.lpf_current_q_tf;
+  motor_.LPF_current_d.Tf = config_.lpf_current_d_tf;
   motor_.P_angle.P = config_.p_angle_p;
   motor_.velocity_limit = config_.velocity_limit_rad_s;
   motor_.motion_downsample = motion_downsample_;
