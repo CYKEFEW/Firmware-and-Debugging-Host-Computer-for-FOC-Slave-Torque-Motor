@@ -188,11 +188,18 @@ class SimpleFOCDevice:
             self.passiveTorqueTargetNm = 0.05
             self.passiveTorqueSaturationAngleDeg = 1.0
             self.passiveTorqueFollowDeadzoneDeg = 0.8
+            self.passiveTorqueRunningSpeedThresholdRadS = 2.0
             self.passiveTorqueCalculationHz = 1000
             self.passiveTorqueUpdateHz = self.passiveTorqueCalculationHz
-            self.passiveTorqueFollowPidP = 0.25
-            self.passiveTorqueFollowPidI = 0.0
-            self.passiveTorqueFollowPidD = 0.0
+            self.passiveTorqueFollowLowPidP = 0.25
+            self.passiveTorqueFollowLowPidI = 0.0
+            self.passiveTorqueFollowLowPidD = 0.0
+            self.passiveTorqueFollowRunPidP = 0.08
+            self.passiveTorqueFollowRunPidI = 0.0
+            self.passiveTorqueFollowRunPidD = 0.0
+            self.passiveTorqueFollowPidP = self.passiveTorqueFollowLowPidP
+            self.passiveTorqueFollowPidI = self.passiveTorqueFollowLowPidI
+            self.passiveTorqueFollowPidD = self.passiveTorqueFollowLowPidD
             self.passiveTorqueDampingAngleDeg = 0.0
             self.passiveTorqueDebugEnabled = False
             self.modulationType = 0
@@ -273,6 +280,11 @@ class SimpleFOCDevice:
         except KeyError:
             pass
         try:
+            self.passiveTorqueRunningSpeedThresholdRadS = float(
+                jsonValue['passiveTorqueRunningSpeedThresholdRadS'])
+        except KeyError:
+            pass
+        try:
             self.passiveTorqueCalculationHz = max(
                 1, int(float(jsonValue['passiveTorqueCalculationHz'])))
         except KeyError:
@@ -283,20 +295,41 @@ class SimpleFOCDevice:
                 pass
         self.passiveTorqueUpdateHz = self.passiveTorqueCalculationHz
         try:
-            self.passiveTorqueFollowPidP = float(
-                jsonValue['passiveTorqueFollowPidP'])
+            self.passiveTorqueFollowLowPidP = float(
+                jsonValue.get('passiveTorqueFollowLowPidP',
+                              jsonValue['passiveTorqueFollowPidP']))
         except KeyError:
             pass
         try:
-            self.passiveTorqueFollowPidI = float(
-                jsonValue['passiveTorqueFollowPidI'])
+            self.passiveTorqueFollowLowPidI = float(
+                jsonValue.get('passiveTorqueFollowLowPidI',
+                              jsonValue['passiveTorqueFollowPidI']))
         except KeyError:
             pass
         try:
-            self.passiveTorqueFollowPidD = float(
-                jsonValue['passiveTorqueFollowPidD'])
+            self.passiveTorqueFollowLowPidD = float(
+                jsonValue.get('passiveTorqueFollowLowPidD',
+                              jsonValue['passiveTorqueFollowPidD']))
         except KeyError:
             pass
+        try:
+            self.passiveTorqueFollowRunPidP = float(
+                jsonValue['passiveTorqueFollowRunPidP'])
+        except KeyError:
+            pass
+        try:
+            self.passiveTorqueFollowRunPidI = float(
+                jsonValue['passiveTorqueFollowRunPidI'])
+        except KeyError:
+            pass
+        try:
+            self.passiveTorqueFollowRunPidD = float(
+                jsonValue['passiveTorqueFollowRunPidD'])
+        except KeyError:
+            pass
+        self.passiveTorqueFollowPidP = self.passiveTorqueFollowLowPidP
+        self.passiveTorqueFollowPidI = self.passiveTorqueFollowLowPidI
+        self.passiveTorqueFollowPidD = self.passiveTorqueFollowLowPidD
         try:
             self.passiveTorqueDampingAngleDeg = float(
                 jsonValue['passiveTorqueDampingAngleDeg'])
@@ -361,11 +394,18 @@ class SimpleFOCDevice:
             'passiveTorqueSaturationAngleDeg': self.passiveTorqueSaturationAngleDeg,
             'passiveTorqueMaxDampingAngleDeg': self.passiveTorqueSaturationAngleDeg,
             'passiveTorqueFollowDeadzoneDeg': self.passiveTorqueFollowDeadzoneDeg,
+            'passiveTorqueRunningSpeedThresholdRadS': self.passiveTorqueRunningSpeedThresholdRadS,
             'passiveTorqueCalculationHz': self.passiveTorqueCalculationHz,
             'passiveTorqueUpdateHz': self.passiveTorqueCalculationHz,
-            'passiveTorqueFollowPidP': self.passiveTorqueFollowPidP,
-            'passiveTorqueFollowPidI': self.passiveTorqueFollowPidI,
-            'passiveTorqueFollowPidD': self.passiveTorqueFollowPidD,
+            'passiveTorqueFollowPidP': self.passiveTorqueFollowLowPidP,
+            'passiveTorqueFollowPidI': self.passiveTorqueFollowLowPidI,
+            'passiveTorqueFollowPidD': self.passiveTorqueFollowLowPidD,
+            'passiveTorqueFollowLowPidP': self.passiveTorqueFollowLowPidP,
+            'passiveTorqueFollowLowPidI': self.passiveTorqueFollowLowPidI,
+            'passiveTorqueFollowLowPidD': self.passiveTorqueFollowLowPidD,
+            'passiveTorqueFollowRunPidP': self.passiveTorqueFollowRunPidP,
+            'passiveTorqueFollowRunPidI': self.passiveTorqueFollowRunPidI,
+            'passiveTorqueFollowRunPidD': self.passiveTorqueFollowRunPidD,
             'passiveTorqueDampingAngleDeg': self.passiveTorqueDampingAngleDeg,
             'stateUpdateRateHz': self.stateUpdateRateHz,
             'sensorZeroOffset': self.sensorZeroOffset,
@@ -713,6 +753,12 @@ class SimpleFOCDevice:
                 self.passiveTorqueFollowDeadzoneDeg = max(0.0, float(targetvalue))
             self.setCommand('ZH', str(targetvalue))
 
+    def sendPassiveTorqueRunningSpeedThreshold(self, targetvalue):
+        if self.isConnected:
+            if targetvalue != '':
+                self.passiveTorqueRunningSpeedThresholdRadS = max(0.1, float(targetvalue))
+            self.setCommand('ZR', str(targetvalue))
+
     def sendPassiveTorqueCalculationHz(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
@@ -726,20 +772,41 @@ class SimpleFOCDevice:
     def sendPassiveTorqueFollowPidP(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueFollowPidP = float(targetvalue)
+                self.passiveTorqueFollowLowPidP = float(targetvalue)
+                self.passiveTorqueFollowPidP = self.passiveTorqueFollowLowPidP
             self.setCommand('ZP', str(targetvalue))
 
     def sendPassiveTorqueFollowPidI(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueFollowPidI = float(targetvalue)
+                self.passiveTorqueFollowLowPidI = float(targetvalue)
+                self.passiveTorqueFollowPidI = self.passiveTorqueFollowLowPidI
             self.setCommand('ZI', str(targetvalue))
 
     def sendPassiveTorqueFollowPidD(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueFollowPidD = float(targetvalue)
+                self.passiveTorqueFollowLowPidD = float(targetvalue)
+                self.passiveTorqueFollowPidD = self.passiveTorqueFollowLowPidD
             self.setCommand('ZD', str(targetvalue))
+
+    def sendPassiveTorqueFollowRunPidP(self, targetvalue):
+        if self.isConnected:
+            if targetvalue != '':
+                self.passiveTorqueFollowRunPidP = float(targetvalue)
+            self.setCommand('ZJ', str(targetvalue))
+
+    def sendPassiveTorqueFollowRunPidI(self, targetvalue):
+        if self.isConnected:
+            if targetvalue != '':
+                self.passiveTorqueFollowRunPidI = float(targetvalue)
+            self.setCommand('ZK', str(targetvalue))
+
+    def sendPassiveTorqueFollowRunPidD(self, targetvalue):
+        if self.isConnected:
+            if targetvalue != '':
+                self.passiveTorqueFollowRunPidD = float(targetvalue)
+            self.setCommand('ZL', str(targetvalue))
 
     def sendPassiveTorqueFieldOffset(self, targetvalue):
         if self.isConnected:
@@ -896,6 +963,8 @@ class SimpleFOCDevice:
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueFollowDeadzone('')
                 time.sleep(5 / 1000)
+                self.sendPassiveTorqueRunningSpeedThreshold('')
+                time.sleep(5 / 1000)
                 self.sendPassiveTorqueCalculationHz('')
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueFollowPidP('')
@@ -903,6 +972,12 @@ class SimpleFOCDevice:
                 self.sendPassiveTorqueFollowPidI('')
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueFollowPidD('')
+                time.sleep(5 / 1000)
+                self.sendPassiveTorqueFollowRunPidP('')
+                time.sleep(5 / 1000)
+                self.sendPassiveTorqueFollowRunPidI('')
+                time.sleep(5 / 1000)
+                self.sendPassiveTorqueFollowRunPidD('')
                 time.sleep(5 / 1000)
                 self.sendDeviceStatus('')
             finally:
@@ -984,6 +1059,10 @@ class SimpleFOCDevice:
         self.passiveTorqueFollowDeadzoneDeg = float(
             comandResponse.replace('PassiveTorqueFollowDeadzone:', ''))
 
+    def parsePassiveTorqueRunningSpeedThresholdResponse(self, comandResponse):
+        self.passiveTorqueRunningSpeedThresholdRadS = float(
+            comandResponse.replace('PassiveTorqueRunningSpeedThreshold:', ''))
+
     def parsePassiveTorqueCalculationHzResponse(self, comandResponse):
         value = comandResponse.replace('PassiveTorqueCalculationHz:', '')
         value = value.replace('PassiveTorqueUpdateHz:', '')
@@ -991,16 +1070,31 @@ class SimpleFOCDevice:
         self.passiveTorqueUpdateHz = self.passiveTorqueCalculationHz
 
     def parsePassiveTorqueFollowPidPResponse(self, comandResponse):
-        self.passiveTorqueFollowPidP = float(
+        self.passiveTorqueFollowLowPidP = float(
             comandResponse.replace('PassiveTorqueFollowPidP:', ''))
+        self.passiveTorqueFollowPidP = self.passiveTorqueFollowLowPidP
 
     def parsePassiveTorqueFollowPidIResponse(self, comandResponse):
-        self.passiveTorqueFollowPidI = float(
+        self.passiveTorqueFollowLowPidI = float(
             comandResponse.replace('PassiveTorqueFollowPidI:', ''))
+        self.passiveTorqueFollowPidI = self.passiveTorqueFollowLowPidI
 
     def parsePassiveTorqueFollowPidDResponse(self, comandResponse):
-        self.passiveTorqueFollowPidD = float(
+        self.passiveTorqueFollowLowPidD = float(
             comandResponse.replace('PassiveTorqueFollowPidD:', ''))
+        self.passiveTorqueFollowPidD = self.passiveTorqueFollowLowPidD
+
+    def parsePassiveTorqueFollowRunPidPResponse(self, comandResponse):
+        self.passiveTorqueFollowRunPidP = float(
+            comandResponse.replace('PassiveTorqueFollowPidRunP:', ''))
+
+    def parsePassiveTorqueFollowRunPidIResponse(self, comandResponse):
+        self.passiveTorqueFollowRunPidI = float(
+            comandResponse.replace('PassiveTorqueFollowPidRunI:', ''))
+
+    def parsePassiveTorqueFollowRunPidDResponse(self, comandResponse):
+        self.passiveTorqueFollowRunPidD = float(
+            comandResponse.replace('PassiveTorqueFollowPidRunD:', ''))
 
     def parsePassiveTorqueDampingAngleResponse(self, comandResponse):
         self.passiveTorqueDampingAngleDeg = float(
@@ -1092,6 +1186,8 @@ class SimpleFOCDevice:
             self.parsePassiveTorqueSaturationAngleResponse(comandResponse)
         elif 'PassiveTorqueFollowDeadzone' in comandResponse:
             self.parsePassiveTorqueFollowDeadzoneResponse(comandResponse)
+        elif 'PassiveTorqueRunningSpeedThreshold' in comandResponse:
+            self.parsePassiveTorqueRunningSpeedThresholdResponse(comandResponse)
         elif 'PassiveTorqueCalculationHz' in comandResponse:
             self.parsePassiveTorqueCalculationHzResponse(comandResponse)
         elif 'PassiveTorqueUpdateHz' in comandResponse:
@@ -1102,6 +1198,12 @@ class SimpleFOCDevice:
             self.parsePassiveTorqueFollowPidIResponse(comandResponse)
         elif 'PassiveTorqueFollowPidD' in comandResponse:
             self.parsePassiveTorqueFollowPidDResponse(comandResponse)
+        elif 'PassiveTorqueFollowPidRunP' in comandResponse:
+            self.parsePassiveTorqueFollowRunPidPResponse(comandResponse)
+        elif 'PassiveTorqueFollowPidRunI' in comandResponse:
+            self.parsePassiveTorqueFollowRunPidIResponse(comandResponse)
+        elif 'PassiveTorqueFollowPidRunD' in comandResponse:
+            self.parsePassiveTorqueFollowRunPidDResponse(comandResponse)
         elif 'PassiveTorqueDampingAngle' in comandResponse:
             self.parsePassiveTorqueDampingAngleResponse(comandResponse)
         elif 'PassiveTorqueDebug' in comandResponse:

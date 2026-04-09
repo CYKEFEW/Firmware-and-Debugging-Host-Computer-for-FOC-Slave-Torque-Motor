@@ -12,13 +12,19 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         super().__init__(parent)
 
         self.device = SimpleFOCDevice.getInstance()
-        self._targetDirty = False
-        self._saturationAngleDirty = False
-        self._deadzoneDirty = False
-        self._calculationRateDirty = False
-        self._followPidPDirty = False
-        self._followPidIDirty = False
-        self._followPidDDirty = False
+        self._dirtyFlags = {
+            'target': False,
+            'saturation': False,
+            'deadzone': False,
+            'running_threshold': False,
+            'calc': False,
+            'low_p': False,
+            'low_i': False,
+            'low_d': False,
+            'run_p': False,
+            'run_i': False,
+            'run_d': False,
+        }
 
         self.setObjectName('joggingControl')
         self.setTitle('点动控制')
@@ -28,6 +34,20 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.gridLayout.setHorizontalSpacing(8)
         self.gridLayout.setVerticalSpacing(6)
 
+        self._buildJogButtons()
+        self._buildEditors()
+
+        self.disableUI()
+        self.refreshModeUi()
+
+        self.device.addConnectionStateListener(self)
+        self.device.commProvider.commandDataReceived.connect(
+            self.commandResponseReceived)
+        self.device.commProvider.stateMonitorReceived.connect(
+            self.stateResponseReceived)
+        self.connectionStateChanged(self.device.isConnected)
+
+    def _buildJogButtons(self):
         self.fastFordwardButton = QtWidgets.QPushButton()
         self.fastFordwardButton.setObjectName('fastbackward')
         self.fastFordwardButton.setIcon(GUIToolKit.getIconByName('fastbackward'))
@@ -58,139 +78,153 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.fastBackwardButton.clicked.connect(self.joggingfastFordward)
         self.gridLayout.addWidget(self.fastBackwardButton, 0, 4)
 
-        float_validator = QtGui.QRegExpValidator(
+    def _buildEditors(self):
+        self.floatValidator = QtGui.QRegExpValidator(
             QtCore.QRegExp("[+-]?([0-9]*[.])?[0-9]+"))
-        int_validator = QtGui.QRegExpValidator(QtCore.QRegExp("[1-9][0-9]*"))
+        self.intValidator = QtGui.QRegExpValidator(QtCore.QRegExp("[1-9][0-9]*"))
 
         self.incrementLabel = QtWidgets.QLabel(self)
         self.gridLayout.addWidget(self.incrementLabel, 1, 0, 1, 2)
 
         self.incrementEdit = QtWidgets.QLineEdit(self)
-        self.incrementEdit.setValidator(float_validator)
+        self.incrementEdit.setValidator(self.floatValidator)
         self.incrementEdit.setAlignment(QtCore.Qt.AlignCenter)
         self.incrementEdit.setText('1.0')
-        self.incrementEdit.setObjectName('incrementEdit')
         self.gridLayout.addWidget(self.incrementEdit, 1, 2, 1, 3)
 
         self.targetLabel = QtWidgets.QLabel(self)
         self.gridLayout.addWidget(self.targetLabel, 2, 0, 1, 2)
 
         self.targetEdit = QtWidgets.QLineEdit(self)
-        self.targetEdit.setValidator(float_validator)
+        self.targetEdit.setValidator(self.floatValidator)
         self.targetEdit.setAlignment(QtCore.Qt.AlignCenter)
         self.targetEdit.setText('0.0')
-        self.targetEdit.setObjectName('targetEdit')
-        self.targetEdit.textEdited.connect(self._markTargetDirty)
+        self.targetEdit.textEdited.connect(
+            lambda _text: self._markDirty('target'))
         self.targetEdit.returnPressed.connect(self.applyTargetValue)
         self.gridLayout.addWidget(self.targetEdit, 2, 2, 1, 2)
 
         self.applyTargetButton = QtWidgets.QPushButton('应用')
-        self.applyTargetButton.setObjectName('applyTargetButton')
         self.applyTargetButton.clicked.connect(self.applyTargetValue)
         self.gridLayout.addWidget(self.applyTargetButton, 2, 4)
 
-        self.saturationAngleLabel = QtWidgets.QLabel('饱和磁场阻尼角[°]:', self)
-        self.gridLayout.addWidget(self.saturationAngleLabel, 3, 0, 1, 2)
+        self.saturationAngleLabel, self.saturationAngleEdit, self.applySaturationAngleButton = (
+            self._addEditableRow(
+                3,
+                '饱和磁场阻尼角[°]:',
+                '2.0',
+                self.floatValidator,
+                'saturation',
+                self.applySaturationAngle))
 
-        self.saturationAngleEdit = QtWidgets.QLineEdit(self)
-        self.saturationAngleEdit.setValidator(float_validator)
-        self.saturationAngleEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.saturationAngleEdit.setText('2.0')
-        self.saturationAngleEdit.textEdited.connect(self._markSaturationAngleDirty)
-        self.saturationAngleEdit.returnPressed.connect(self.applySaturationAngle)
-        self.gridLayout.addWidget(self.saturationAngleEdit, 3, 2, 1, 2)
+        self.deadzoneLabel, self.deadzoneEdit, self.applyDeadzoneButton = (
+            self._addEditableRow(
+                4,
+                '跟随死区[°]:',
+                '0.8',
+                self.floatValidator,
+                'deadzone',
+                self.applyDeadzone))
 
-        self.applySaturationAngleButton = QtWidgets.QPushButton('应用')
-        self.applySaturationAngleButton.clicked.connect(self.applySaturationAngle)
-        self.gridLayout.addWidget(self.applySaturationAngleButton, 3, 4)
+        self.runningThresholdLabel, self.runningThresholdEdit, self.applyRunningThresholdButton = (
+            self._addEditableRow(
+                5,
+                '旋转工况阈值[rad/s]:',
+                '2.0',
+                self.floatValidator,
+                'running_threshold',
+                self.applyRunningThreshold))
 
-        self.deadzoneLabel = QtWidgets.QLabel('跟随死区[°]:', self)
-        self.gridLayout.addWidget(self.deadzoneLabel, 4, 0, 1, 2)
+        self.calculationRateLabel, self.calculationRateEdit, self.applyCalculationRateButton = (
+            self._addEditableRow(
+                6,
+                '计算频率[Hz]:',
+                '1000',
+                self.intValidator,
+                'calc',
+                self.applyCalculationRate))
 
-        self.deadzoneEdit = QtWidgets.QLineEdit(self)
-        self.deadzoneEdit.setValidator(float_validator)
-        self.deadzoneEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.deadzoneEdit.setText('0.8')
-        self.deadzoneEdit.textEdited.connect(self._markDeadzoneDirty)
-        self.deadzoneEdit.returnPressed.connect(self.applyDeadzone)
-        self.gridLayout.addWidget(self.deadzoneEdit, 4, 2, 1, 2)
+        self.followLowPidPLabel, self.followLowPidPEdit, self.applyFollowLowPidPButton = (
+            self._addEditableRow(
+                7,
+                '低速/静止跟随 PID P:',
+                '0.25',
+                self.floatValidator,
+                'low_p',
+                self.applyFollowLowPidP))
 
-        self.applyDeadzoneButton = QtWidgets.QPushButton('应用')
-        self.applyDeadzoneButton.clicked.connect(self.applyDeadzone)
-        self.gridLayout.addWidget(self.applyDeadzoneButton, 4, 4)
+        self.followLowPidILabel, self.followLowPidIEdit, self.applyFollowLowPidIButton = (
+            self._addEditableRow(
+                8,
+                '低速/静止跟随 PID I:',
+                '0.0',
+                self.floatValidator,
+                'low_i',
+                self.applyFollowLowPidI))
 
-        self.calculationRateLabel = QtWidgets.QLabel('计算频率[Hz]:', self)
-        self.gridLayout.addWidget(self.calculationRateLabel, 5, 0, 1, 2)
+        self.followLowPidDLabel, self.followLowPidDEdit, self.applyFollowLowPidDButton = (
+            self._addEditableRow(
+                9,
+                '低速/静止跟随 PID D:',
+                '0.0',
+                self.floatValidator,
+                'low_d',
+                self.applyFollowLowPidD))
 
-        self.calculationRateEdit = QtWidgets.QLineEdit(self)
-        self.calculationRateEdit.setValidator(int_validator)
-        self.calculationRateEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.calculationRateEdit.setText('1000')
-        self.calculationRateEdit.textEdited.connect(self._markCalculationRateDirty)
-        self.calculationRateEdit.returnPressed.connect(self.applyCalculationRate)
-        self.gridLayout.addWidget(self.calculationRateEdit, 5, 2, 1, 2)
+        self.followRunPidPLabel, self.followRunPidPEdit, self.applyFollowRunPidPButton = (
+            self._addEditableRow(
+                10,
+                '旋转工况跟随 PID P:',
+                '0.08',
+                self.floatValidator,
+                'run_p',
+                self.applyFollowRunPidP))
 
-        self.applyCalculationRateButton = QtWidgets.QPushButton('应用')
-        self.applyCalculationRateButton.clicked.connect(self.applyCalculationRate)
-        self.gridLayout.addWidget(self.applyCalculationRateButton, 5, 4)
+        self.followRunPidILabel, self.followRunPidIEdit, self.applyFollowRunPidIButton = (
+            self._addEditableRow(
+                11,
+                '旋转工况跟随 PID I:',
+                '0.0',
+                self.floatValidator,
+                'run_i',
+                self.applyFollowRunPidI))
 
-        self.followPidPLabel = QtWidgets.QLabel('跟随 PID P:', self)
-        self.gridLayout.addWidget(self.followPidPLabel, 6, 0, 1, 2)
+        self.followRunPidDLabel, self.followRunPidDEdit, self.applyFollowRunPidDButton = (
+            self._addEditableRow(
+                12,
+                '旋转工况跟随 PID D:',
+                '0.0',
+                self.floatValidator,
+                'run_d',
+                self.applyFollowRunPidD))
 
-        self.followPidPEdit = QtWidgets.QLineEdit(self)
-        self.followPidPEdit.setValidator(float_validator)
-        self.followPidPEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.followPidPEdit.setText('0.25')
-        self.followPidPEdit.textEdited.connect(self._markFollowPidPDirty)
-        self.followPidPEdit.returnPressed.connect(self.applyFollowPidP)
-        self.gridLayout.addWidget(self.followPidPEdit, 6, 2, 1, 2)
+    def _addEditableRow(self, row, label_text, default_text, validator, dirty_key, apply_slot):
+        label = QtWidgets.QLabel(label_text, self)
+        self.gridLayout.addWidget(label, row, 0, 1, 2)
 
-        self.applyFollowPidPButton = QtWidgets.QPushButton('应用')
-        self.applyFollowPidPButton.clicked.connect(self.applyFollowPidP)
-        self.gridLayout.addWidget(self.applyFollowPidPButton, 6, 4)
+        edit = QtWidgets.QLineEdit(self)
+        edit.setValidator(validator)
+        edit.setAlignment(QtCore.Qt.AlignCenter)
+        edit.setText(default_text)
+        edit.textEdited.connect(lambda _text, key=dirty_key: self._markDirty(key))
+        edit.returnPressed.connect(apply_slot)
+        self.gridLayout.addWidget(edit, row, 2, 1, 2)
 
-        self.followPidILabel = QtWidgets.QLabel('跟随 PID I:', self)
-        self.gridLayout.addWidget(self.followPidILabel, 7, 0, 1, 2)
-
-        self.followPidIEdit = QtWidgets.QLineEdit(self)
-        self.followPidIEdit.setValidator(float_validator)
-        self.followPidIEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.followPidIEdit.setText('0.0')
-        self.followPidIEdit.textEdited.connect(self._markFollowPidIDirty)
-        self.followPidIEdit.returnPressed.connect(self.applyFollowPidI)
-        self.gridLayout.addWidget(self.followPidIEdit, 7, 2, 1, 2)
-
-        self.applyFollowPidIButton = QtWidgets.QPushButton('应用')
-        self.applyFollowPidIButton.clicked.connect(self.applyFollowPidI)
-        self.gridLayout.addWidget(self.applyFollowPidIButton, 7, 4)
-
-        self.followPidDLabel = QtWidgets.QLabel('跟随 PID D:', self)
-        self.gridLayout.addWidget(self.followPidDLabel, 8, 0, 1, 2)
-
-        self.followPidDEdit = QtWidgets.QLineEdit(self)
-        self.followPidDEdit.setValidator(float_validator)
-        self.followPidDEdit.setAlignment(QtCore.Qt.AlignCenter)
-        self.followPidDEdit.setText('0.0')
-        self.followPidDEdit.textEdited.connect(self._markFollowPidDDirty)
-        self.followPidDEdit.returnPressed.connect(self.applyFollowPidD)
-        self.gridLayout.addWidget(self.followPidDEdit, 8, 2, 1, 2)
-
-        self.applyFollowPidDButton = QtWidgets.QPushButton('应用')
-        self.applyFollowPidDButton.clicked.connect(self.applyFollowPidD)
-        self.gridLayout.addWidget(self.applyFollowPidDButton, 8, 4)
-
-        self.disableUI()
-        self.refreshModeUi()
-
-        self.device.addConnectionStateListener(self)
-        self.device.commProvider.commandDataReceived.connect(
-            self.commandResponseReceived)
-        self.device.commProvider.stateMonitorReceived.connect(
-            self.stateResponseReceived)
-        self.connectionStateChanged(self.device.isConnected)
+        button = QtWidgets.QPushButton('应用')
+        button.clicked.connect(apply_slot)
+        self.gridLayout.addWidget(button, row, 4)
+        return label, edit, button
 
     def _isPassiveTorqueMode(self):
         return self.device.passiveTorqueMode
+
+    def _markDirty(self, key):
+        self._dirtyFlags[key] = True
+
+    def _setLineEditValue(self, line_edit, value):
+        line_edit.blockSignals(True)
+        line_edit.setText(str(value))
+        line_edit.blockSignals(False)
 
     def _currentValue(self):
         if self._isPassiveTorqueMode():
@@ -203,108 +237,84 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         else:
             self.device.sendTargetValue(str(value))
 
-    def _setLineEditValue(self, line_edit, value):
-        line_edit.blockSignals(True)
-        line_edit.setText(str(value))
-        line_edit.blockSignals(False)
-
-    def _markTargetDirty(self, _text):
-        self._targetDirty = True
-
-    def _markSaturationAngleDirty(self, _text):
-        self._saturationAngleDirty = True
-
-    def _markDeadzoneDirty(self, _text):
-        self._deadzoneDirty = True
-
-    def _markCalculationRateDirty(self, _text):
-        self._calculationRateDirty = True
-
-    def _markFollowPidPDirty(self, _text):
-        self._followPidPDirty = True
-
-    def _markFollowPidIDirty(self, _text):
-        self._followPidIDirty = True
-
-    def _markFollowPidDDirty(self, _text):
-        self._followPidDDirty = True
+    def _syncPassiveTorqueEditors(self):
+        bindings = (
+            ('saturation', self.saturationAngleEdit,
+             self.device.passiveTorqueSaturationAngleDeg),
+            ('deadzone', self.deadzoneEdit,
+             self.device.passiveTorqueFollowDeadzoneDeg),
+            ('running_threshold', self.runningThresholdEdit,
+             self.device.passiveTorqueRunningSpeedThresholdRadS),
+            ('calc', self.calculationRateEdit,
+             self.device.passiveTorqueCalculationHz),
+            ('low_p', self.followLowPidPEdit,
+             self.device.passiveTorqueFollowLowPidP),
+            ('low_i', self.followLowPidIEdit,
+             self.device.passiveTorqueFollowLowPidI),
+            ('low_d', self.followLowPidDEdit,
+             self.device.passiveTorqueFollowLowPidD),
+            ('run_p', self.followRunPidPEdit,
+             self.device.passiveTorqueFollowRunPidP),
+            ('run_i', self.followRunPidIEdit,
+             self.device.passiveTorqueFollowRunPidI),
+            ('run_d', self.followRunPidDEdit,
+             self.device.passiveTorqueFollowRunPidD),
+        )
+        for dirty_key, line_edit, value in bindings:
+            if not self._dirtyFlags[dirty_key]:
+                self._setLineEditValue(line_edit, value)
 
     def refreshModeUi(self):
+        passive_widgets = (
+            self.saturationAngleLabel,
+            self.saturationAngleEdit,
+            self.applySaturationAngleButton,
+            self.deadzoneLabel,
+            self.deadzoneEdit,
+            self.applyDeadzoneButton,
+            self.runningThresholdLabel,
+            self.runningThresholdEdit,
+            self.applyRunningThresholdButton,
+            self.calculationRateLabel,
+            self.calculationRateEdit,
+            self.applyCalculationRateButton,
+            self.followLowPidPLabel,
+            self.followLowPidPEdit,
+            self.applyFollowLowPidPButton,
+            self.followLowPidILabel,
+            self.followLowPidIEdit,
+            self.applyFollowLowPidIButton,
+            self.followLowPidDLabel,
+            self.followLowPidDEdit,
+            self.applyFollowLowPidDButton,
+            self.followRunPidPLabel,
+            self.followRunPidPEdit,
+            self.applyFollowRunPidPButton,
+            self.followRunPidILabel,
+            self.followRunPidIEdit,
+            self.applyFollowRunPidIButton,
+            self.followRunPidDLabel,
+            self.followRunPidDEdit,
+            self.applyFollowRunPidDButton,
+        )
+
         if self._isPassiveTorqueMode():
             self.incrementLabel.setText('力矩步进[Nm]:')
             self.targetLabel.setText('目标阻尼力矩[Nm]:')
-
-            self.saturationAngleLabel.show()
-            self.saturationAngleEdit.show()
-            self.applySaturationAngleButton.show()
-            self.deadzoneLabel.show()
-            self.deadzoneEdit.show()
-            self.applyDeadzoneButton.show()
-            self.calculationRateLabel.show()
-            self.calculationRateEdit.show()
-            self.applyCalculationRateButton.show()
-            self.followPidPLabel.show()
-            self.followPidPEdit.show()
-            self.applyFollowPidPButton.show()
-            self.followPidILabel.show()
-            self.followPidIEdit.show()
-            self.applyFollowPidIButton.show()
-            self.followPidDLabel.show()
-            self.followPidDEdit.show()
-            self.applyFollowPidDButton.show()
-
-            if not self._saturationAngleDirty:
-                self._setLineEditValue(
-                    self.saturationAngleEdit,
-                    self.device.passiveTorqueSaturationAngleDeg)
-            if not self._deadzoneDirty:
-                self._setLineEditValue(
-                    self.deadzoneEdit,
-                    self.device.passiveTorqueFollowDeadzoneDeg)
-            if not self._calculationRateDirty:
-                self._setLineEditValue(
-                    self.calculationRateEdit,
-                    self.device.passiveTorqueCalculationHz)
-            if not self._followPidPDirty:
-                self._setLineEditValue(
-                    self.followPidPEdit,
-                    self.device.passiveTorqueFollowPidP)
-            if not self._followPidIDirty:
-                self._setLineEditValue(
-                    self.followPidIEdit,
-                    self.device.passiveTorqueFollowPidI)
-            if not self._followPidDDirty:
-                self._setLineEditValue(
-                    self.followPidDEdit,
-                    self.device.passiveTorqueFollowPidD)
+            for widget in passive_widgets:
+                widget.show()
+            self._syncPassiveTorqueEditors()
         else:
             self.incrementLabel.setText('步进值:')
             self.targetLabel.setText('目标值:')
+            for widget in passive_widgets:
+                widget.hide()
 
-            self.saturationAngleLabel.hide()
-            self.saturationAngleEdit.hide()
-            self.applySaturationAngleButton.hide()
-            self.deadzoneLabel.hide()
-            self.deadzoneEdit.hide()
-            self.applyDeadzoneButton.hide()
-            self.calculationRateLabel.hide()
-            self.calculationRateEdit.hide()
-            self.applyCalculationRateButton.hide()
-            self.followPidPLabel.hide()
-            self.followPidPEdit.hide()
-            self.applyFollowPidPButton.hide()
-            self.followPidILabel.hide()
-            self.followPidIEdit.hide()
-            self.applyFollowPidIButton.hide()
-            self.followPidDLabel.hide()
-            self.followPidDEdit.hide()
-            self.applyFollowPidDButton.hide()
-
-        if not self._targetDirty:
+        if not self._dirtyFlags['target']:
             self._setLineEditValue(self.targetEdit, self._currentValue())
 
     def connectionStateChanged(self, isConnectedFlag):
-        if isConnectedFlag is True:
+        if isConnectedFlag:
             self.enabeUI()
         else:
             self.disableUI()
@@ -320,7 +330,7 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         self.refreshModeUi()
 
     def stateResponseReceived(self, _commandResponse):
-        if not self._targetDirty:
+        if not self._dirtyFlags['target']:
             self._setLineEditValue(self.targetEdit, self._currentValue())
 
     def applyTargetValue(self):
@@ -328,7 +338,7 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         if target == '':
             return
         self._sendValue(target)
-        self._targetDirty = False
+        self._dirtyFlags['target'] = False
         self._setLineEditValue(self.targetEdit, self._currentValue())
 
     def applySaturationAngle(self):
@@ -336,7 +346,7 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         if value == '':
             return
         self.device.sendPassiveTorqueSaturationAngle(value)
-        self._saturationAngleDirty = False
+        self._dirtyFlags['saturation'] = False
         self._setLineEditValue(
             self.saturationAngleEdit,
             self.device.passiveTorqueSaturationAngleDeg)
@@ -346,50 +356,90 @@ class DeviceJoggingControl(QtWidgets.QGroupBox):
         if value == '':
             return
         self.device.sendPassiveTorqueFollowDeadzone(value)
-        self._deadzoneDirty = False
+        self._dirtyFlags['deadzone'] = False
         self._setLineEditValue(
             self.deadzoneEdit,
             self.device.passiveTorqueFollowDeadzoneDeg)
+
+    def applyRunningThreshold(self):
+        value = self.runningThresholdEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueRunningSpeedThreshold(value)
+        self._dirtyFlags['running_threshold'] = False
+        self._setLineEditValue(
+            self.runningThresholdEdit,
+            self.device.passiveTorqueRunningSpeedThresholdRadS)
 
     def applyCalculationRate(self):
         value = self.calculationRateEdit.text().strip()
         if value == '':
             return
         self.device.sendPassiveTorqueCalculationHz(value)
-        self._calculationRateDirty = False
+        self._dirtyFlags['calc'] = False
         self._setLineEditValue(
             self.calculationRateEdit,
             self.device.passiveTorqueCalculationHz)
 
-    def applyFollowPidP(self):
-        value = self.followPidPEdit.text().strip()
+    def applyFollowLowPidP(self):
+        value = self.followLowPidPEdit.text().strip()
         if value == '':
             return
         self.device.sendPassiveTorqueFollowPidP(value)
-        self._followPidPDirty = False
+        self._dirtyFlags['low_p'] = False
         self._setLineEditValue(
-            self.followPidPEdit,
-            self.device.passiveTorqueFollowPidP)
+            self.followLowPidPEdit,
+            self.device.passiveTorqueFollowLowPidP)
 
-    def applyFollowPidI(self):
-        value = self.followPidIEdit.text().strip()
+    def applyFollowLowPidI(self):
+        value = self.followLowPidIEdit.text().strip()
         if value == '':
             return
         self.device.sendPassiveTorqueFollowPidI(value)
-        self._followPidIDirty = False
+        self._dirtyFlags['low_i'] = False
         self._setLineEditValue(
-            self.followPidIEdit,
-            self.device.passiveTorqueFollowPidI)
+            self.followLowPidIEdit,
+            self.device.passiveTorqueFollowLowPidI)
 
-    def applyFollowPidD(self):
-        value = self.followPidDEdit.text().strip()
+    def applyFollowLowPidD(self):
+        value = self.followLowPidDEdit.text().strip()
         if value == '':
             return
         self.device.sendPassiveTorqueFollowPidD(value)
-        self._followPidDDirty = False
+        self._dirtyFlags['low_d'] = False
         self._setLineEditValue(
-            self.followPidDEdit,
-            self.device.passiveTorqueFollowPidD)
+            self.followLowPidDEdit,
+            self.device.passiveTorqueFollowLowPidD)
+
+    def applyFollowRunPidP(self):
+        value = self.followRunPidPEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowRunPidP(value)
+        self._dirtyFlags['run_p'] = False
+        self._setLineEditValue(
+            self.followRunPidPEdit,
+            self.device.passiveTorqueFollowRunPidP)
+
+    def applyFollowRunPidI(self):
+        value = self.followRunPidIEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowRunPidI(value)
+        self._dirtyFlags['run_i'] = False
+        self._setLineEditValue(
+            self.followRunPidIEdit,
+            self.device.passiveTorqueFollowRunPidI)
+
+    def applyFollowRunPidD(self):
+        value = self.followRunPidDEdit.text().strip()
+        if value == '':
+            return
+        self.device.sendPassiveTorqueFollowRunPidD(value)
+        self._dirtyFlags['run_d'] = False
+        self._setLineEditValue(
+            self.followRunPidDEdit,
+            self.device.passiveTorqueFollowRunPidD)
 
     def _stepCurrentValue(self, delta):
         increment = self.incrementEdit.text().strip()

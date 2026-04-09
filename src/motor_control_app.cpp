@@ -36,10 +36,15 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
           config.passive_torque_saturation_angle_deg),
       passive_torque_follow_deadzone_deg_(
           config.passive_torque_follow_deadzone_deg),
+      passive_torque_running_speed_threshold_rad_s_(
+          config.passive_torque_running_speed_threshold_rad_s),
       passive_torque_calculation_hz_(config.passive_torque_calculation_hz),
-      passive_torque_follow_pid_p_(config.passive_torque_follow_pid_p),
-      passive_torque_follow_pid_i_(config.passive_torque_follow_pid_i),
-      passive_torque_follow_pid_d_(config.passive_torque_follow_pid_d) {
+      passive_torque_follow_pid_low_p_(config.passive_torque_follow_pid_low_p),
+      passive_torque_follow_pid_low_i_(config.passive_torque_follow_pid_low_i),
+      passive_torque_follow_pid_low_d_(config.passive_torque_follow_pid_low_d),
+      passive_torque_follow_pid_run_p_(config.passive_torque_follow_pid_run_p),
+      passive_torque_follow_pid_run_i_(config.passive_torque_follow_pid_run_i),
+      passive_torque_follow_pid_run_d_(config.passive_torque_follow_pid_run_d) {
   active_instance_ = this;
 }
 
@@ -62,17 +67,21 @@ void MotorControlApp::setup() {
   Serial.printf("[I2C] SDA=%d SCL=%d clk=%luHz timeout=%ums\n",
                 config_.i2c_sda_pin,
                 config_.i2c_scl_pin,
-                (unsigned long)config_.i2c_clock_hz,
-                (unsigned)config_.i2c_timeout_ms);
+                static_cast<unsigned long>(config_.i2c_clock_hz),
+                static_cast<unsigned>(config_.i2c_timeout_ms));
   Serial.printf(
-      "[PassiveTorque] target=%.4fNm saturation_angle=%.3fdeg deadzone=%.3fdeg calc=%uHz pid=(%.4f, %.4f, %.4f) current_limit=%.2fA\n",
+      "[PassiveTorque] target=%.4fNm saturation=%.3fdeg deadzone=%.3fdeg calc=%uHz speed_threshold=%.3frad/s low_pid=(%.4f, %.4f, %.4f) run_pid=(%.4f, %.4f, %.4f) current_limit=%.2fA\n",
       passive_torque_target_nm_,
       passive_torque_saturation_angle_deg_,
       passive_torque_follow_deadzone_deg_,
       passive_torque_calculation_hz_,
-      passive_torque_follow_pid_p_,
-      passive_torque_follow_pid_i_,
-      passive_torque_follow_pid_d_,
+      passive_torque_running_speed_threshold_rad_s_,
+      passive_torque_follow_pid_low_p_,
+      passive_torque_follow_pid_low_i_,
+      passive_torque_follow_pid_low_d_,
+      passive_torque_follow_pid_run_p_,
+      passive_torque_follow_pid_run_i_,
+      passive_torque_follow_pid_run_d_,
       motor_.current_limit);
 
   _delay(1000);
@@ -141,6 +150,14 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     return;
   }
 
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'R') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueRunningSpeedThresholdRadS(atof(cmd + 2));
+    }
+    reportPassiveTorqueRunningSpeedThresholdRadS();
+    return;
+  }
+
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'F') {
     if (!IsCommandSentinel(cmd[2])) {
       setPassiveTorqueCalculationHz(
@@ -152,25 +169,49 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
 
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'P') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueFollowPidP(atof(cmd + 2));
+      setPassiveTorqueFollowPidLowP(atof(cmd + 2));
     }
-    reportPassiveTorqueFollowPidP();
+    reportPassiveTorqueFollowPidLowP();
     return;
   }
 
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'I') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueFollowPidI(atof(cmd + 2));
+      setPassiveTorqueFollowPidLowI(atof(cmd + 2));
     }
-    reportPassiveTorqueFollowPidI();
+    reportPassiveTorqueFollowPidLowI();
     return;
   }
 
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'D') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueFollowPidD(atof(cmd + 2));
+      setPassiveTorqueFollowPidLowD(atof(cmd + 2));
     }
-    reportPassiveTorqueFollowPidD();
+    reportPassiveTorqueFollowPidLowD();
+    return;
+  }
+
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'J') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueFollowPidRunP(atof(cmd + 2));
+    }
+    reportPassiveTorqueFollowPidRunP();
+    return;
+  }
+
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'K') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueFollowPidRunI(atof(cmd + 2));
+    }
+    reportPassiveTorqueFollowPidRunI();
+    return;
+  }
+
+  if (cmd && cmd[0] == 'Z' && cmd[1] == 'L') {
+    if (!IsCommandSentinel(cmd[2])) {
+      setPassiveTorqueFollowPidRunD(atof(cmd + 2));
+    }
+    reportPassiveTorqueFollowPidRunD();
     return;
   }
 
@@ -207,8 +248,10 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     release_mode_ = false;
     passive_torque_mode_ = false;
     passive_torque_damping_angle_rad_ = 0.0f;
-    passive_follow_pid_integral_ = 0.0f;
-    passive_follow_pid_prev_error_ = 0.0f;
+    passive_follow_pid_low_integral_ = 0.0f;
+    passive_follow_pid_low_prev_error_ = 0.0f;
+    passive_follow_pid_run_integral_ = 0.0f;
+    passive_follow_pid_run_prev_error_ = 0.0f;
     motor_.target = 0.0f;
   }
 
@@ -267,8 +310,10 @@ void MotorControlApp::initializeCurrentSense() {
 void MotorControlApp::setReleaseMode(bool enabled) {
   release_mode_ = enabled;
   passive_torque_damping_angle_rad_ = 0.0f;
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
   motor_.target = 0.0f;
 
   if (release_mode_) {
@@ -283,8 +328,11 @@ void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   passive_torque_mode_ = enabled;
   motor_.target = 0.0f;
   passive_torque_damping_angle_rad_ = 0.0f;
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
+  passive_follow_using_run_pid_ = false;
 
   if (passive_torque_mode_) {
     release_mode_ = false;
@@ -318,33 +366,56 @@ void MotorControlApp::setPassiveTorqueTargetNm(float target_nm) {
 void MotorControlApp::setPassiveTorqueSaturationAngleDeg(float angle_deg) {
   passive_torque_saturation_angle_deg_ =
       constrain(fabsf(angle_deg), 0.05f, 45.0f);
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
 }
 
 void MotorControlApp::setPassiveTorqueFollowDeadzoneDeg(float angle_deg) {
   passive_torque_follow_deadzone_deg_ = constrain(fabsf(angle_deg), 0.0f, 20.0f);
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
+}
+
+void MotorControlApp::setPassiveTorqueRunningSpeedThresholdRadS(float value) {
+  passive_torque_running_speed_threshold_rad_s_ = constrain(fabsf(value), 0.1f, 100.0f);
 }
 
 void MotorControlApp::setPassiveTorqueCalculationHz(unsigned int calculation_hz) {
   passive_torque_calculation_hz_ = constrain(calculation_hz, 1u, 5000u);
 }
 
-void MotorControlApp::setPassiveTorqueFollowPidP(float value) {
-  passive_torque_follow_pid_p_ = max(0.0f, value);
-  passive_follow_pid_prev_error_ = 0.0f;
+void MotorControlApp::setPassiveTorqueFollowPidLowP(float value) {
+  passive_torque_follow_pid_low_p_ = max(0.0f, value);
+  passive_follow_pid_low_prev_error_ = 0.0f;
 }
 
-void MotorControlApp::setPassiveTorqueFollowPidI(float value) {
-  passive_torque_follow_pid_i_ = max(0.0f, value);
-  passive_follow_pid_integral_ = 0.0f;
+void MotorControlApp::setPassiveTorqueFollowPidLowI(float value) {
+  passive_torque_follow_pid_low_i_ = max(0.0f, value);
+  passive_follow_pid_low_integral_ = 0.0f;
 }
 
-void MotorControlApp::setPassiveTorqueFollowPidD(float value) {
-  passive_torque_follow_pid_d_ = max(0.0f, value);
-  passive_follow_pid_prev_error_ = 0.0f;
+void MotorControlApp::setPassiveTorqueFollowPidLowD(float value) {
+  passive_torque_follow_pid_low_d_ = max(0.0f, value);
+  passive_follow_pid_low_prev_error_ = 0.0f;
+}
+
+void MotorControlApp::setPassiveTorqueFollowPidRunP(float value) {
+  passive_torque_follow_pid_run_p_ = max(0.0f, value);
+  passive_follow_pid_run_prev_error_ = 0.0f;
+}
+
+void MotorControlApp::setPassiveTorqueFollowPidRunI(float value) {
+  passive_torque_follow_pid_run_i_ = max(0.0f, value);
+  passive_follow_pid_run_integral_ = 0.0f;
+}
+
+void MotorControlApp::setPassiveTorqueFollowPidRunD(float value) {
+  passive_torque_follow_pid_run_d_ = max(0.0f, value);
+  passive_follow_pid_run_prev_error_ = 0.0f;
 }
 
 void MotorControlApp::injectPassiveTorqueFieldOffsetDeg(float offset_deg) {
@@ -352,16 +423,21 @@ void MotorControlApp::injectPassiveTorqueFieldOffsetDeg(float offset_deg) {
   const float offset_rad = constrain(offset_deg, -180.0f, 180.0f) * DEG_TO_RAD;
   passive_field_angle_ref_rad_ = current_angle - offset_rad;
   passive_torque_damping_angle_rad_ = offset_rad;
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
   passive_torque_last_update_us_ = micros();
 }
 
 void MotorControlApp::resetPassiveTorqueFieldReference() {
   passive_field_angle_ref_rad_ = motor_.shaftAngle();
   passive_torque_damping_angle_rad_ = 0.0f;
-  passive_follow_pid_integral_ = 0.0f;
-  passive_follow_pid_prev_error_ = 0.0f;
+  passive_follow_pid_low_integral_ = 0.0f;
+  passive_follow_pid_low_prev_error_ = 0.0f;
+  passive_follow_pid_run_integral_ = 0.0f;
+  passive_follow_pid_run_prev_error_ = 0.0f;
+  passive_follow_using_run_pid_ = false;
   passive_torque_last_update_us_ = micros();
 }
 
@@ -404,6 +480,31 @@ void MotorControlApp::updatePassiveTorqueControl() {
   passive_torque_last_update_us_ = now_us;
 
   const float current_angle = motor_.shaft_angle;
+  const float current_velocity = motor_.shaft_velocity;
+  const bool use_run_pid =
+      fabsf(current_velocity) >= passiveTorqueRunningSpeedThresholdRadS();
+  if (use_run_pid != passive_follow_using_run_pid_) {
+    passive_follow_using_run_pid_ = use_run_pid;
+    if (use_run_pid) {
+      passive_follow_pid_run_integral_ = 0.0f;
+      passive_follow_pid_run_prev_error_ = 0.0f;
+    } else {
+      passive_follow_pid_low_integral_ = 0.0f;
+      passive_follow_pid_low_prev_error_ = 0.0f;
+    }
+  }
+
+  float& pid_integral = use_run_pid ? passive_follow_pid_run_integral_
+                                    : passive_follow_pid_low_integral_;
+  float& pid_prev_error = use_run_pid ? passive_follow_pid_run_prev_error_
+                                      : passive_follow_pid_low_prev_error_;
+  const float pid_p = use_run_pid ? passive_torque_follow_pid_run_p_
+                                  : passive_torque_follow_pid_low_p_;
+  const float pid_i = use_run_pid ? passive_torque_follow_pid_run_i_
+                                  : passive_torque_follow_pid_low_i_;
+  const float pid_d = use_run_pid ? passive_torque_follow_pid_run_d_
+                                  : passive_torque_follow_pid_low_d_;
+
   const float saturation_angle_rad = passiveTorqueSaturationAngleRad();
   const float raw_follow_error = current_angle - passive_field_angle_ref_rad_;
   const float follow_deadzone_rad = passiveFieldFollowDeadzoneRad();
@@ -413,32 +514,28 @@ void MotorControlApp::updatePassiveTorqueControl() {
     follow_error = copysignf(
         fabsf(raw_follow_error) - follow_deadzone_rad, raw_follow_error);
   } else {
-    passive_follow_pid_integral_ = 0.0f;
-    passive_follow_pid_prev_error_ = 0.0f;
+    pid_integral = 0.0f;
+    pid_prev_error = 0.0f;
   }
 
   const float integral_limit =
-      passive_torque_follow_pid_i_ > 1e-6f
-          ? saturation_angle_rad / passive_torque_follow_pid_i_
-          : 0.0f;
+      pid_i > 1e-6f ? saturation_angle_rad / pid_i : 0.0f;
   if (fabsf(follow_error) > 1e-6f) {
-    passive_follow_pid_integral_ += follow_error * dt;
+    pid_integral += follow_error * dt;
     if (integral_limit > 0.0f) {
-      passive_follow_pid_integral_ = constrain(
-          passive_follow_pid_integral_, -integral_limit, integral_limit);
+      pid_integral = constrain(pid_integral, -integral_limit, integral_limit);
     }
   }
 
   const float derivative =
-      dt > 1e-6f ? (follow_error - passive_follow_pid_prev_error_) / dt : 0.0f;
-  float follow_step = passive_torque_follow_pid_p_ * follow_error +
-                      passive_torque_follow_pid_i_ * passive_follow_pid_integral_ +
-                      passive_torque_follow_pid_d_ * derivative;
+      dt > 1e-6f ? (follow_error - pid_prev_error) / dt : 0.0f;
+  float follow_step = pid_p * follow_error + pid_i * pid_integral +
+                      pid_d * derivative;
   follow_step =
       constrain(follow_step, -fabsf(raw_follow_error), fabsf(raw_follow_error));
 
   passive_field_angle_ref_rad_ += follow_step;
-  passive_follow_pid_prev_error_ = follow_error;
+  pid_prev_error = follow_error;
 
   const float damping_angle = current_angle - passive_field_angle_ref_rad_;
   passive_torque_damping_angle_rad_ = damping_angle;
@@ -488,24 +585,44 @@ void MotorControlApp::reportPassiveTorqueFollowDeadzoneDeg() {
   Serial.println(passive_torque_follow_deadzone_deg_, 4);
 }
 
+void MotorControlApp::reportPassiveTorqueRunningSpeedThresholdRadS() {
+  Serial.print(F("PassiveTorqueRunningSpeedThreshold:"));
+  Serial.println(passive_torque_running_speed_threshold_rad_s_, 4);
+}
+
 void MotorControlApp::reportPassiveTorqueCalculationHz() {
   Serial.print(F("PassiveTorqueCalculationHz:"));
   Serial.println(passive_torque_calculation_hz_);
 }
 
-void MotorControlApp::reportPassiveTorqueFollowPidP() {
+void MotorControlApp::reportPassiveTorqueFollowPidLowP() {
   Serial.print(F("PassiveTorqueFollowPidP:"));
-  Serial.println(passive_torque_follow_pid_p_, 6);
+  Serial.println(passive_torque_follow_pid_low_p_, 6);
 }
 
-void MotorControlApp::reportPassiveTorqueFollowPidI() {
+void MotorControlApp::reportPassiveTorqueFollowPidLowI() {
   Serial.print(F("PassiveTorqueFollowPidI:"));
-  Serial.println(passive_torque_follow_pid_i_, 6);
+  Serial.println(passive_torque_follow_pid_low_i_, 6);
 }
 
-void MotorControlApp::reportPassiveTorqueFollowPidD() {
+void MotorControlApp::reportPassiveTorqueFollowPidLowD() {
   Serial.print(F("PassiveTorqueFollowPidD:"));
-  Serial.println(passive_torque_follow_pid_d_, 6);
+  Serial.println(passive_torque_follow_pid_low_d_, 6);
+}
+
+void MotorControlApp::reportPassiveTorqueFollowPidRunP() {
+  Serial.print(F("PassiveTorqueFollowPidRunP:"));
+  Serial.println(passive_torque_follow_pid_run_p_, 6);
+}
+
+void MotorControlApp::reportPassiveTorqueFollowPidRunI() {
+  Serial.print(F("PassiveTorqueFollowPidRunI:"));
+  Serial.println(passive_torque_follow_pid_run_i_, 6);
+}
+
+void MotorControlApp::reportPassiveTorqueFollowPidRunD() {
+  Serial.print(F("PassiveTorqueFollowPidRunD:"));
+  Serial.println(passive_torque_follow_pid_run_d_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueDampingAngleDeg() {
@@ -524,11 +641,24 @@ void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
     return;
   }
 
+  const bool use_run_pid =
+      fabsf(motor_.shaft_velocity) >= passiveTorqueRunningSpeedThresholdRadS();
+  const float pid_p =
+      use_run_pid ? passive_torque_follow_pid_run_p_ : passive_torque_follow_pid_low_p_;
+  const float pid_i =
+      use_run_pid ? passive_torque_follow_pid_run_i_ : passive_torque_follow_pid_low_i_;
+  const float pid_d =
+      use_run_pid ? passive_torque_follow_pid_run_d_ : passive_torque_follow_pid_low_d_;
+
   Serial.print(F("[PassiveTorque] "));
   Serial.print(phase);
+  Serial.print(F(" | mode="));
+  Serial.print(use_run_pid ? F("run") : F("low"));
   Serial.print(F(" | mech="));
   Serial.print(motor_.shaft_angle, 4);
-  Serial.print(F(" rad | field="));
+  Serial.print(F(" rad | vel="));
+  Serial.print(motor_.shaft_velocity, 4);
+  Serial.print(F(" rad/s | field="));
   Serial.print(passive_field_angle_ref_rad_, 4);
   Serial.print(F(" rad | damping="));
   Serial.print(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
@@ -538,12 +668,14 @@ void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
   Serial.print(passive_torque_follow_deadzone_deg_, 4);
   Serial.print(F(" deg | calc="));
   Serial.print(passive_torque_calculation_hz_);
-  Serial.print(F(" Hz | pid=("));
-  Serial.print(passive_torque_follow_pid_p_, 4);
+  Serial.print(F(" Hz | speed_threshold="));
+  Serial.print(passive_torque_running_speed_threshold_rad_s_, 4);
+  Serial.print(F(" rad/s | pid=("));
+  Serial.print(pid_p, 4);
   Serial.print(F(","));
-  Serial.print(passive_torque_follow_pid_i_, 4);
+  Serial.print(pid_i, 4);
   Serial.print(F(","));
-  Serial.print(passive_torque_follow_pid_d_, 4);
+  Serial.print(pid_d, 4);
   Serial.print(F(") | torque="));
   Serial.print(passive_torque_target_nm_, 4);
   Serial.print(F(" Nm | iq="));
@@ -565,4 +697,8 @@ float MotorControlApp::passiveTorqueSaturationAngleRad() const {
 
 float MotorControlApp::passiveFieldFollowDeadzoneRad() const {
   return passive_torque_follow_deadzone_deg_ * DEG_TO_RAD;
+}
+
+float MotorControlApp::passiveTorqueRunningSpeedThresholdRadS() const {
+  return max(0.1f, passive_torque_running_speed_threshold_rad_s_);
 }
