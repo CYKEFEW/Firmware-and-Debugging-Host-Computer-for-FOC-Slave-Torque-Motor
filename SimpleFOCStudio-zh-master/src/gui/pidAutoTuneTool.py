@@ -10,7 +10,6 @@ from PyQt5 import QtCore, QtWidgets
 from src.gui.sharedcomnponets.sharedcomponets import GUIToolKit, WorkAreaTabWidget
 from src.simpleFOCConnector import SimpleFOCDevice
 
-
 LOOP_DEFINITIONS = (
     ('current_q', '电流 Q PID', True, True, True, False),
     ('current_d', '电流 D PID', False, True, True, False),
@@ -19,6 +18,35 @@ LOOP_DEFINITIONS = (
     ('passive_follow_static', '从动力矩跟随 PID（低速/静止）', False, True, False, False),
     ('passive_follow_running', '从动力矩跟随 PID（正常旋转）', False, True, False, False),
 )
+
+
+# 自动测量时的状态采样频率。
+DEFAULT_MEASUREMENT_RATE_HZ = 50
+# 正常旋转工况等待手动转动的最长时间。
+DEFAULT_ROTATION_DETECT_TIMEOUT_S = 12.0
+# 正常旋转工况单个挡位的最大重试次数。
+DEFAULT_ROTATION_RETRY_LIMIT = 5
+
+# 从动力矩跟随 PID 自动测量的阻尼力矩终值默认值。
+DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM = 0.05
+# 从动力矩跟随 PID 自动测量的阻尼力矩扫描挡数默认值。
+DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 5
+# 判定进入正常旋转工况的默认速度阈值。
+DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S = 1.0
+# 速度需要连续超过/低于阈值的默认持续时间。
+DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S = 1.0
+# 每个 PID 项的默认最大迭代次数。
+DEFAULT_MAX_ITERATIONS = 6
+
+# 各个控制环在自动测量时使用的默认候选 PID 起点。
+DEFAULT_PID_CANDIDATES = {
+    'current_q': {'P': 1.0, 'I': 20.0, 'D': 0.0},
+    'current_d': {'P': 1.0, 'I': 20.0, 'D': 0.0},
+    'velocity': {'P': 0.2, 'I': 5.0, 'D': 0.0},
+    'angle': {'P': 10.0, 'I': 0.0, 'D': 0.0},
+    'passive_follow_static': {'P': 0.10, 'I': 0.0, 'D': 0.0},
+    'passive_follow_running': {'P': 0.05, 'I': 0.0, 'D': 0.0},
+}
 
 
 class PidAutoTuneWorker(QtCore.QThread):
@@ -42,9 +70,9 @@ class PidAutoTuneWorker(QtCore.QThread):
         self.passive_follow_final_target_nm = passive_follow_final_target_nm
         self.passive_follow_step_count_value = passive_follow_step_count
         self.passive_follow_running_hold_s = passive_follow_running_hold_s
-        self.measurement_rate_hz = 50
-        self.rotation_detect_timeout_s = 12.0
-        self.rotation_retry_limit = 5
+        self.measurement_rate_hz = DEFAULT_MEASUREMENT_RATE_HZ
+        self.rotation_detect_timeout_s = DEFAULT_ROTATION_DETECT_TIMEOUT_S
+        self.rotation_retry_limit = DEFAULT_ROTATION_RETRY_LIMIT
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -288,8 +316,8 @@ class PidAutoTuneWorker(QtCore.QThread):
             self.device.sendTargetValue('0')
 
     def _passive_follow_test_target_nm(self):
-        value = self._to_float(self.passive_follow_final_target_nm, 0.05)
-        return value if value >= 0.01 else 0.05
+        value = self._to_float(self.passive_follow_final_target_nm, DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM)
+        return value if value >= 0.01 else DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM
 
     def _passive_follow_step_count(self):
         return max(2, int(self.passive_follow_step_count_value))
@@ -298,11 +326,11 @@ class PidAutoTuneWorker(QtCore.QThread):
         return max(
             0.1,
             self._to_float(
-                getattr(self.device, 'passiveTorqueRunningSpeedThresholdRadS', 2.0),
-                2.0))
+                getattr(self.device, 'passiveTorqueRunningSpeedThresholdRadS', DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S),
+                DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S))
 
     def _rotation_hold_threshold_s(self):
-        return max(0.1, self._to_float(self.passive_follow_running_hold_s, 1.0))
+        return max(0.1, self._to_float(self.passive_follow_running_hold_s, DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S))
 
     def _configure_standard_loop(self, loop_name):
         self.device.sendPassiveTorqueMode('0')
@@ -499,15 +527,7 @@ class PidAutoTuneWorker(QtCore.QThread):
         return self._collect_standard_metrics(loop_name)
 
     def _candidate_defaults(self, loop_name, term_name):
-        defaults = {
-            'current_q': {'P': 1.0, 'I': 20.0, 'D': 0.0},
-            'current_d': {'P': 1.0, 'I': 20.0, 'D': 0.0},
-            'velocity': {'P': 0.2, 'I': 5.0, 'D': 0.0},
-            'angle': {'P': 10.0, 'I': 0.0, 'D': 0.0},
-            'passive_follow_static': {'P': 0.10, 'I': 0.0, 'D': 0.0},
-            'passive_follow_running': {'P': 0.05, 'I': 0.0, 'D': 0.0},
-        }
-        return defaults.get(loop_name, {}).get(term_name, 0.0)
+        return DEFAULT_PID_CANDIDATES.get(loop_name, {}).get(term_name, 0.0)
 
     def _candidate_values(self, loop_name, term_name, current_value):
         current_value = self._to_float(current_value, self._candidate_defaults(loop_name, term_name))
@@ -622,7 +642,9 @@ class PidAutoTuneWorker(QtCore.QThread):
             'control_type': getattr(self.device, 'controlType', None),
             'torque_type': getattr(self.device, 'torqueType', None),
             'target': self._to_float(self.device.target),
-            'passive_torque_target_nm': self._to_float(self.device.passiveTorqueTargetNm, 0.05),
+            'passive_torque_target_nm': self._to_float(
+                self.device.passiveTorqueTargetNm,
+                DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM),
             'state_update_rate_hz': self._to_float(getattr(self.device, 'stateUpdateRateHz', 10), 10),
             'state_updater_running': self.device.stateUpdater is not None and not self.device.stateUpdater.stopped(),
         }
@@ -701,31 +723,34 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.passiveFollowFinalTorqueSpin.setRange(0.01, 1.0)
         self.passiveFollowFinalTorqueSpin.setDecimals(4)
         self.passiveFollowFinalTorqueSpin.setSingleStep(0.01)
-        self.passiveFollowFinalTorqueSpin.setValue(0.05)
+        self.passiveFollowFinalTorqueSpin.setValue(DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM)
 
         self.passiveFollowStepCountLabel = QtWidgets.QLabel('阻尼力矩扫描挡数:')
         self.passiveFollowStepCountSpin = QtWidgets.QSpinBox()
         self.passiveFollowStepCountSpin.setRange(2, 50)
-        self.passiveFollowStepCountSpin.setValue(10)
+        self.passiveFollowStepCountSpin.setValue(DEFAULT_PASSIVE_FOLLOW_STEP_COUNT)
 
         self.passiveFollowRunningThresholdLabel = QtWidgets.QLabel('旋转工况阈值[rad/s]:')
         self.passiveFollowRunningThresholdSpin = QtWidgets.QDoubleSpinBox()
         self.passiveFollowRunningThresholdSpin.setRange(0.1, 50.0)
         self.passiveFollowRunningThresholdSpin.setDecimals(3)
         self.passiveFollowRunningThresholdSpin.setSingleStep(0.1)
-        self.passiveFollowRunningThresholdSpin.setValue(self._device_value('passiveTorqueRunningSpeedThresholdRadS', 2.0))
+        self.passiveFollowRunningThresholdSpin.setValue(
+            self._device_value(
+                'passiveTorqueRunningSpeedThresholdRadS',
+                DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S))
 
         self.passiveFollowRunningHoldLabel = QtWidgets.QLabel('手动旋转时间阈值[s]:')
         self.passiveFollowRunningHoldSpin = QtWidgets.QDoubleSpinBox()
         self.passiveFollowRunningHoldSpin.setRange(0.1, 10.0)
         self.passiveFollowRunningHoldSpin.setDecimals(2)
         self.passiveFollowRunningHoldSpin.setSingleStep(0.1)
-        self.passiveFollowRunningHoldSpin.setValue(1.0)
+        self.passiveFollowRunningHoldSpin.setValue(DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S)
 
         self.maxIterationsLabel = QtWidgets.QLabel('最大迭代次数:')
         self.maxIterationsSpin = QtWidgets.QSpinBox()
         self.maxIterationsSpin.setRange(1, 20)
-        self.maxIterationsSpin.setValue(6)
+        self.maxIterationsSpin.setValue(DEFAULT_MAX_ITERATIONS)
 
         widgets = (
             (self.passiveFollowFinalTorqueLabel, self.passiveFollowFinalTorqueSpin),

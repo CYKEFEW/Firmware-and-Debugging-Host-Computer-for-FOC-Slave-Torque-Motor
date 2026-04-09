@@ -188,7 +188,7 @@ class SimpleFOCDevice:
             self.passiveTorqueTargetNm = 0.05
             self.passiveTorqueSaturationAngleDeg = 1.0
             self.passiveTorqueFollowDeadzoneDeg = 0.8
-            self.passiveTorqueRunningSpeedThresholdRadS = 2.0
+            self.passiveTorqueRunningSpeedThresholdRadS = 1.0
             self.passiveTorqueCalculationHz = 1000
             self.passiveTorqueUpdateHz = self.passiveTorqueCalculationHz
             self.passiveTorqueFollowLowPidP = 0.25
