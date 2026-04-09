@@ -22,8 +22,8 @@ constexpr float kPassiveTorqueFollowPidRunI = 0.0f;              // 旋转工况
 constexpr float kPassiveTorqueFollowPidRunD = 0.0f;              // 旋转工况跟随 PID D
 
 // 运动控制参数
-constexpr float kVelocityPidP = 0.021f;             // 速度环 P
-constexpr float kVelocityPidI = 0.12f;              // 速度环 I
+constexpr float kVelocityPidP = 0.08f;             // 速度环 P
+constexpr float kVelocityPidI = 0.2f;              // 速度环 I
 constexpr float kVelocityPidD = 0.0f;               // 速度环 D
 constexpr float kVelocityLpfTf = 0.01f;             // 速度低通滤波时间常数
 constexpr float kAnglePidP = 20.0f;                 // 角度环 P
