@@ -2,50 +2,61 @@
 
 namespace {
 // 基础硬件参数
-constexpr int kPolePairs = 7;                         // 电机极对数
-constexpr float kMotorKvRpmPerVolt = 137.75f;        // 电机 KV [rpm/V]
-constexpr float kPowerSupplyVoltage = 12.8f;         // 驱动母线电压 [V]
-constexpr float kCurrentLimitAmp = 1.8f;             // 电流限制 [A]
+constexpr int kPolePairs = 7;                     // 电机极对数
+constexpr float kMotorKvRpmPerVolt = 137.75f;    // 电机 KV [rpm/V]
+constexpr float kPowerSupplyVoltage = 12.8f;     // 驱动母线电压 [V]
+constexpr float kCurrentLimitAmp = 1.8f;         // 电流限制 [A]
 
 // 从动力矩控制默认参数
-constexpr float kPassiveTorqueTargetNm = 0.02f;      // 目标阻尼力矩 [Nm]
-constexpr float kPassiveTorqueSaturationAngleDeg = 2.0f;  // 饱和磁场阻尼角 [deg]
-constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;   // 跟随死区 [deg]
+constexpr float kPassiveTorqueTargetNm = 0.02f;               // 目标阻尼力矩 [Nm]
+constexpr float kPassiveTorqueSaturationAngleDeg = 2.0f;      // 饱和磁场阻尼角 [deg]
+constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;       // 跟随死区 [deg]
 constexpr float kPassiveTorqueRunningSpeedThresholdRadS = 2.0f;  // 旋转工况阈值 [rad/s]
-constexpr unsigned int kPassiveTorqueCalculationHz = 1000;       // 计算频率 [Hz]
+constexpr unsigned int kPassiveTorqueCalculationHz = 1000;    // 计算频率 [Hz]
 constexpr unsigned int kPassiveTorqueTransitionBufferMs = 500;  // 切回从动力矩前的释放缓冲时间 [ms]
-constexpr float kPassiveTorqueFollowPidLowP = 0.0008f;           // 低速/静止跟随 PID P
-constexpr float kPassiveTorqueFollowPidLowI = 0.0f;              // 低速/静止跟随 PID I
-constexpr float kPassiveTorqueFollowPidLowD = 0.0f;              // 低速/静止跟随 PID D
-constexpr float kPassiveTorqueFollowPidRunP = 0.0311f;           // 旋转工况跟随 PID P
-constexpr float kPassiveTorqueFollowPidRunI = 0.0f;              // 旋转工况跟随 PID I
-constexpr float kPassiveTorqueFollowPidRunD = 0.0f;              // 旋转工况跟随 PID D
+constexpr float kPassiveTorqueFollowPidLowP = 0.0008f;        // 低速/静止跟随 PID P
+constexpr float kPassiveTorqueFollowPidLowI = 0.0f;           // 低速/静止跟随 PID I
+constexpr float kPassiveTorqueFollowPidLowD = 0.0f;           // 低速/静止跟随 PID D
+constexpr float kPassiveTorqueFollowPidRunP = 0.0311f;        // 旋转工况跟随 PID P
+constexpr float kPassiveTorqueFollowPidRunI = 0.0f;           // 旋转工况跟随 PID I
+constexpr float kPassiveTorqueFollowPidRunD = 0.0f;           // 旋转工况跟随 PID D
 
 // 运动控制参数
-constexpr float kVelocityPidP = 0.08f;             // 速度环 P
-constexpr float kVelocityPidI = 0.2f;              // 速度环 I
-constexpr float kVelocityPidD = 0.0f;               // 速度环 D
-constexpr float kVelocityLpfTf = 0.01f;             // 速度低通滤波时间常数
-constexpr float kAnglePidP = 20.0f;                 // 角度环 P
-constexpr float kCurrentQPidP = 3.0f;               // 电流 Q 环 P
-constexpr float kCurrentQPidI = 120.0f;             // 电流 Q 环 I
-constexpr float kCurrentQPidD = 0.0f;               // 电流 Q 环 D
-constexpr float kCurrentQLpfTf = 0.005f;            // 电流 Q 环低通滤波时间常数
-constexpr float kCurrentDPidP = 7.3728f;               // 电流 D 环 P
-constexpr float kCurrentDPidI = 279.936f;             // 电流 D 环 I
-constexpr float kCurrentDPidD = 0.0f;               // 电流 D 环 D
-constexpr float kCurrentDLpfTf = 0.005f;            // 电流 D 环低通滤波时间常数
-constexpr unsigned int kMotionDownsample = 0;       // 运动控制降采样
+constexpr float kVelocityPidP = 0.08f;           // 速度环 P
+constexpr float kVelocityPidI = 0.2f;            // 速度环 I
+constexpr float kVelocityPidD = 0.0f;            // 速度环 D
+constexpr float kVelocityLpfTf = 0.01f;          // 速度低通滤波时间常数
+constexpr float kAnglePidP = 20.0f;              // 角度环 P
+constexpr float kCurrentQPidP = 3.0f;            // 电流 Q 环 P
+constexpr float kCurrentQPidI = 120.0f;          // 电流 Q 环 I
+constexpr float kCurrentQPidD = 0.0f;            // 电流 Q 环 D
+constexpr float kCurrentQLpfTf = 0.005f;         // 电流 Q 环低通滤波时间常数
+constexpr float kCurrentDPidP = 7.3728f;         // 电流 D 环 P
+constexpr float kCurrentDPidI = 279.936f;        // 电流 D 环 I
+constexpr float kCurrentDPidD = 0.0f;            // 电流 D 环 D
+constexpr float kCurrentDLpfTf = 0.005f;         // 电流 D 环低通滤波时间常数
+constexpr unsigned int kMotionDownsample = 0;    // 运动控制降采样
 
 // 传感器与驱动引脚
-constexpr int kI2cSdaPin = 23;                      // I2C SDA
-constexpr int kI2cSclPin = 5;                       // I2C SCL
-constexpr int kPwmUPin = 26;                        // U 相 PWM
-constexpr int kPwmVPin = 27;                        // V 相 PWM
-constexpr int kPwmWPin = 14;                        // W 相 PWM
-constexpr int kDriverEnablePin = 12;                // 驱动使能
-constexpr int kCurrentAPin = 35;                    // A 相电流采样
-constexpr int kCurrentBPin = 34;                    // B 相电流采样
+constexpr int kI2cSdaPin = 23;                   // I2C SDA
+constexpr int kI2cSclPin = 5;                    // I2C SCL
+constexpr int kPwmUPin = 26;                     // U 相 PWM
+constexpr int kPwmVPin = 27;                     // V 相 PWM
+constexpr int kPwmWPin = 14;                     // W 相 PWM
+constexpr int kDriverEnablePin = 12;             // 驱动使能
+constexpr int kCurrentAPin = 35;                 // A 相电流采样
+constexpr int kCurrentBPin = 34;                 // B 相电流采样
+
+// 串口命令使能开关，默认 3 个串口都接收 Commander 命令
+bool g_serial0_command_enabled = true;           // USB/下载口
+bool g_serial1_command_enabled = true;           // UART1
+bool g_serial2_command_enabled = true;           // UART2
+
+// ESP32 辅助串口默认引脚
+constexpr int kSerial1RxPin = 4;                 // UART1 RX
+constexpr int kSerial1TxPin = 13;                // UART1 TX
+constexpr int kSerial2RxPin = 16;                // UART2 RX
+constexpr int kSerial2TxPin = 17;                // UART2 TX
 
 const MotorAppConfig kMotorConfig = {
     kPolePairs,                       // 电机极对数
@@ -104,6 +115,13 @@ const MotorAppConfig kMotorConfig = {
     static_cast<uint8_t>(_MON_TARGET | _MON_VEL | _MON_ANGLE | _MON_CURR_Q),
     0,                                // 监控降采样
     115200UL,                         // 串口波特率
+    g_serial0_command_enabled,        // Serial 命令使能
+    g_serial1_command_enabled,        // Serial1 命令使能
+    g_serial2_command_enabled,        // Serial2 命令使能
+    kSerial1RxPin,                    // Serial1 RX
+    kSerial1TxPin,                    // Serial1 TX
+    kSerial2RxPin,                    // Serial2 RX
+    kSerial2TxPin,                    // Serial2 TX
     'M',                              // Commander 命令前缀
 };
 }  // namespace

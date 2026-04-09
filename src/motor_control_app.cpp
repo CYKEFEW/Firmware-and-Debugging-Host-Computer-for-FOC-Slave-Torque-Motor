@@ -7,6 +7,8 @@ namespace {
 bool IsCommandSentinel(char ch) {
   return ch == '\0' || ch == '\n' || ch == '\r';
 }
+
+char kMotorCommandLabel[] = "motor";
 }  // namespace
 
 MotorControlApp::MotorControlApp(const MotorAppConfig& config)
@@ -29,7 +31,9 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
                      config.current_sense_gain,
                      config.current_a_pin,
                      config.current_b_pin),
-      command_(Serial),
+      serial0_command_(Serial),
+      serial1_command_(Serial1),
+      serial2_command_(Serial2),
       motion_downsample_(config.motion_downsample),
       passive_torque_target_nm_(config.passive_torque_target_nm),
       passive_torque_saturation_angle_deg_(
@@ -51,8 +55,7 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
 }
 
 void MotorControlApp::setup() {
-  Serial.begin(config_.serial_baud);
-  delay(50);
+  initializeSerialPorts();
 
   initializeI2C();
   initializeMotor();
@@ -63,7 +66,7 @@ void MotorControlApp::setup() {
   motor_.target = 0.0f;
   resetPassiveTorqueFieldReference();
 
-  command_.add(config_.command_id, handleMotorCommandStatic, "motor");
+  initializeCommanders();
 
   Serial.println(F("Motor self-check finished, target set to 0."));
   Serial.printf("[I2C] SDA=%d SCL=%d clk=%luHz timeout=%ums\n",
@@ -102,7 +105,9 @@ void MotorControlApp::loop() {
   }
 
   motor_.monitor();
-  command_.run();
+  runCommander(serial0_command_, config_.serial0_command_enabled);
+  runCommander(serial1_command_, config_.serial1_command_enabled);
+  runCommander(serial2_command_, config_.serial2_command_enabled);
 }
 
 void MotorControlApp::handleMotorCommandStatic(char* cmd) {
@@ -111,7 +116,17 @@ void MotorControlApp::handleMotorCommandStatic(char* cmd) {
   }
 }
 
+Stream& MotorControlApp::activeCommandPort() {
+  if (active_command_ != nullptr && active_command_->com_port != nullptr) {
+    return *active_command_->com_port;
+  }
+  return Serial;
+}
+
 void MotorControlApp::handleMotorCommand(char* cmd) {
+  Commander& active_command =
+      active_command_ != nullptr ? *active_command_ : serial0_command_;
+
   if (cmd && cmd[0] == 'X') {
     if (!IsCommandSentinel(cmd[1])) {
       setReleaseMode(cmd[1] != '0');
@@ -258,7 +273,7 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
     motor_.target = 0.0f;
   }
 
-  command_.motor(&motor_, cmd);
+  active_command.motor(&motor_, cmd);
 }
 
 void MotorControlApp::initializeI2C() {
@@ -271,6 +286,25 @@ void MotorControlApp::initializeI2C() {
 
   sensor_.begin();
   motor_.linkSensor(&sensor_);
+}
+
+void MotorControlApp::initializeSerialPorts() {
+  Serial.begin(config_.serial_baud);
+  delay(50);
+
+  if (config_.serial1_command_enabled) {
+    Serial1.begin(config_.serial_baud,
+                  SERIAL_8N1,
+                  config_.serial1_rx_pin,
+                  config_.serial1_tx_pin);
+  }
+
+  if (config_.serial2_command_enabled) {
+    Serial2.begin(config_.serial_baud,
+                  SERIAL_8N1,
+                  config_.serial2_rx_pin,
+                  config_.serial2_tx_pin);
+  }
 }
 
 void MotorControlApp::initializeMotor() {
@@ -308,6 +342,28 @@ void MotorControlApp::initializeCurrentSense() {
   current_sense_.gain_a *= -1;
   current_sense_.skip_align = true;
   motor_.linkCurrentSense(&current_sense_);
+}
+
+void MotorControlApp::initializeCommanders() {
+  serial0_command_.add(config_.command_id,
+                       handleMotorCommandStatic,
+                       kMotorCommandLabel);
+  serial1_command_.add(config_.command_id,
+                       handleMotorCommandStatic,
+                       kMotorCommandLabel);
+  serial2_command_.add(config_.command_id,
+                       handleMotorCommandStatic,
+                       kMotorCommandLabel);
+}
+
+void MotorControlApp::runCommander(Commander& commander, bool enabled) {
+  if (!enabled) {
+    return;
+  }
+
+  active_command_ = &commander;
+  commander.run();
+  active_command_ = nullptr;
 }
 
 void MotorControlApp::setReleaseMode(bool enabled) {
@@ -582,83 +638,99 @@ void MotorControlApp::updatePassiveTorqueControl() {
 }
 
 void MotorControlApp::reportReleaseMode() {
-  Serial.print(F("Release:"));
-  Serial.println(release_mode_ ? 1 : 0);
+  Stream& port = activeCommandPort();
+  port.print(F("Release:"));
+  port.println(release_mode_ ? 1 : 0);
 }
 
 void MotorControlApp::reportPassiveTorqueMode() {
-  Serial.print(F("PassiveTorqueMode:"));
-  Serial.println(passive_torque_mode_ ? 1 : 0);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueMode:"));
+  port.println(passive_torque_mode_ ? 1 : 0);
 }
 
 void MotorControlApp::reportPassiveTorqueDebugEnabled() {
-  Serial.print(F("PassiveTorqueDebug:"));
-  Serial.println(passive_torque_debug_enabled_ ? 1 : 0);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueDebug:"));
+  port.println(passive_torque_debug_enabled_ ? 1 : 0);
 }
 
 void MotorControlApp::reportPassiveTorqueTargetNm() {
-  Serial.print(F("PassiveTorqueTarget:"));
-  Serial.println(passive_torque_target_nm_, 4);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueTarget:"));
+  port.println(passive_torque_target_nm_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueSaturationAngleDeg() {
-  Serial.print(F("PassiveTorqueSaturationAngle:"));
-  Serial.println(passive_torque_saturation_angle_deg_, 4);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueSaturationAngle:"));
+  port.println(passive_torque_saturation_angle_deg_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowDeadzoneDeg() {
-  Serial.print(F("PassiveTorqueFollowDeadzone:"));
-  Serial.println(passive_torque_follow_deadzone_deg_, 4);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowDeadzone:"));
+  port.println(passive_torque_follow_deadzone_deg_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueRunningSpeedThresholdRadS() {
-  Serial.print(F("PassiveTorqueRunningSpeedThreshold:"));
-  Serial.println(passive_torque_running_speed_threshold_rad_s_, 4);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueRunningSpeedThreshold:"));
+  port.println(passive_torque_running_speed_threshold_rad_s_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueCalculationHz() {
-  Serial.print(F("PassiveTorqueCalculationHz:"));
-  Serial.println(passive_torque_calculation_hz_);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueCalculationHz:"));
+  port.println(passive_torque_calculation_hz_);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidLowP() {
-  Serial.print(F("PassiveTorqueFollowPidP:"));
-  Serial.println(passive_torque_follow_pid_low_p_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidP:"));
+  port.println(passive_torque_follow_pid_low_p_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidLowI() {
-  Serial.print(F("PassiveTorqueFollowPidI:"));
-  Serial.println(passive_torque_follow_pid_low_i_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidI:"));
+  port.println(passive_torque_follow_pid_low_i_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidLowD() {
-  Serial.print(F("PassiveTorqueFollowPidD:"));
-  Serial.println(passive_torque_follow_pid_low_d_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidD:"));
+  port.println(passive_torque_follow_pid_low_d_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidRunP() {
-  Serial.print(F("PassiveTorqueFollowPidRunP:"));
-  Serial.println(passive_torque_follow_pid_run_p_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidRunP:"));
+  port.println(passive_torque_follow_pid_run_p_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidRunI() {
-  Serial.print(F("PassiveTorqueFollowPidRunI:"));
-  Serial.println(passive_torque_follow_pid_run_i_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidRunI:"));
+  port.println(passive_torque_follow_pid_run_i_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowPidRunD() {
-  Serial.print(F("PassiveTorqueFollowPidRunD:"));
-  Serial.println(passive_torque_follow_pid_run_d_, 6);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueFollowPidRunD:"));
+  port.println(passive_torque_follow_pid_run_d_, 6);
 }
 
 void MotorControlApp::reportPassiveTorqueDampingAngleDeg() {
-  Serial.print(F("PassiveTorqueDampingAngle:"));
-  Serial.println(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
+  Stream& port = activeCommandPort();
+  port.print(F("PassiveTorqueDampingAngle:"));
+  port.println(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
 }
 
 void MotorControlApp::reportMotionDownsample() {
-  Serial.print(F("Motion: downsample: "));
-  Serial.println(motion_downsample_);
+  Stream& port = activeCommandPort();
+  port.print(F("Motion: downsample: "));
+  port.println(motion_downsample_);
 }
 
 void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
@@ -666,6 +738,10 @@ void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
   if (!passive_torque_debug_enabled_) {
     return;
   }
+
+  Stream& port = active_command_ != nullptr && active_command_->com_port != nullptr
+                     ? *active_command_->com_port
+                     : Serial;
 
   const bool use_run_pid =
       fabsf(motor_.shaft_velocity) >= passiveTorqueRunningSpeedThresholdRadS();
@@ -676,36 +752,36 @@ void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
   const float pid_d =
       use_run_pid ? passive_torque_follow_pid_run_d_ : passive_torque_follow_pid_low_d_;
 
-  Serial.print(F("[PassiveTorque] "));
-  Serial.print(phase);
-  Serial.print(F(" | mode="));
-  Serial.print(use_run_pid ? F("run") : F("low"));
-  Serial.print(F(" | mech="));
-  Serial.print(motor_.shaft_angle, 4);
-  Serial.print(F(" rad | vel="));
-  Serial.print(motor_.shaft_velocity, 4);
-  Serial.print(F(" rad/s | field="));
-  Serial.print(passive_field_angle_ref_rad_, 4);
-  Serial.print(F(" rad | damping="));
-  Serial.print(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
-  Serial.print(F(" deg | saturation="));
-  Serial.print(passive_torque_saturation_angle_deg_, 4);
-  Serial.print(F(" deg | deadzone="));
-  Serial.print(passive_torque_follow_deadzone_deg_, 4);
-  Serial.print(F(" deg | calc="));
-  Serial.print(passive_torque_calculation_hz_);
-  Serial.print(F(" Hz | speed_threshold="));
-  Serial.print(passive_torque_running_speed_threshold_rad_s_, 4);
-  Serial.print(F(" rad/s | pid=("));
-  Serial.print(pid_p, 4);
-  Serial.print(F(","));
-  Serial.print(pid_i, 4);
-  Serial.print(F(","));
-  Serial.print(pid_d, 4);
-  Serial.print(F(") | torque="));
-  Serial.print(passive_torque_target_nm_, 4);
-  Serial.print(F(" Nm | iq="));
-  Serial.println(iq_target, 4);
+  port.print(F("[PassiveTorque] "));
+  port.print(phase);
+  port.print(F(" | mode="));
+  port.print(use_run_pid ? F("run") : F("low"));
+  port.print(F(" | mech="));
+  port.print(motor_.shaft_angle, 4);
+  port.print(F(" rad | vel="));
+  port.print(motor_.shaft_velocity, 4);
+  port.print(F(" rad/s | field="));
+  port.print(passive_field_angle_ref_rad_, 4);
+  port.print(F(" rad | damping="));
+  port.print(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
+  port.print(F(" deg | saturation="));
+  port.print(passive_torque_saturation_angle_deg_, 4);
+  port.print(F(" deg | deadzone="));
+  port.print(passive_torque_follow_deadzone_deg_, 4);
+  port.print(F(" deg | calc="));
+  port.print(passive_torque_calculation_hz_);
+  port.print(F(" Hz | speed_threshold="));
+  port.print(passive_torque_running_speed_threshold_rad_s_, 4);
+  port.print(F(" rad/s | pid=("));
+  port.print(pid_p, 4);
+  port.print(F(","));
+  port.print(pid_i, 4);
+  port.print(F(","));
+  port.print(pid_d, 4);
+  port.print(F(") | torque="));
+  port.print(passive_torque_target_nm_, 4);
+  port.print(F(" Nm | iq="));
+  port.println(iq_target, 4);
 }
 
 float MotorControlApp::clampPassiveTorqueTargetNm(float target_nm) const {

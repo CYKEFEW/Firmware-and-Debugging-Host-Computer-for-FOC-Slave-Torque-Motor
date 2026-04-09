@@ -61,6 +61,13 @@ struct MotorAppConfig {
   uint8_t monitor_variables;
   unsigned int monitor_downsample;
   unsigned long serial_baud;
+  bool serial0_command_enabled;
+  bool serial1_command_enabled;
+  bool serial2_command_enabled;
+  int serial1_rx_pin;
+  int serial1_tx_pin;
+  int serial2_rx_pin;
+  int serial2_tx_pin;
   char command_id;
 };
 
@@ -75,10 +82,14 @@ class MotorControlApp {
  private:
   static void handleMotorCommandStatic(char* cmd);
 
+  Stream& activeCommandPort();
   void handleMotorCommand(char* cmd);
   void initializeI2C();
+  void initializeSerialPorts();
   void initializeMotor();
   void initializeCurrentSense();
+  void initializeCommanders();
+  void runCommander(Commander& commander, bool enabled);
   void setReleaseMode(bool enabled);
   void setPassiveTorqueMode(bool enabled);
   void setPassiveTorqueDebug(bool enabled);
@@ -129,7 +140,10 @@ class MotorControlApp {
   TwoWire wire_;
   RecoveringAS5600Sensor sensor_;
   InlineCurrentSense current_sense_;
-  Commander command_;
+  Commander serial0_command_;
+  Commander serial1_command_;
+  Commander serial2_command_;
+  Commander* active_command_ = nullptr;
   bool release_mode_ = false;
   bool passive_torque_mode_ = false;
   bool passive_torque_debug_enabled_ = false;
