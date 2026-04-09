@@ -186,7 +186,7 @@ class SimpleFOCDevice:
             self.releaseMode = False
             self.passiveTorqueMode = False
             self.passiveTorqueTargetNm = 0.05
-            self.passiveTorqueMaxDampingAngleDeg = 1.0
+            self.passiveTorqueSaturationAngleDeg = 1.0
             self.passiveTorqueFollowDeadzoneDeg = 0.8
             self.passiveTorqueCalculationHz = 1000
             self.passiveTorqueUpdateHz = self.passiveTorqueCalculationHz
@@ -261,8 +261,10 @@ class SimpleFOCDevice:
         except KeyError:
             pass
         try:
-            self.passiveTorqueMaxDampingAngleDeg = float(
-                jsonValue['passiveTorqueMaxDampingAngleDeg'])
+            self.passiveTorqueSaturationAngleDeg = float(
+                jsonValue.get(
+                    'passiveTorqueSaturationAngleDeg',
+                    jsonValue['passiveTorqueMaxDampingAngleDeg']))
         except KeyError:
             pass
         try:
@@ -356,7 +358,8 @@ class SimpleFOCDevice:
             'releaseMode': self.releaseMode,
             'passiveTorqueMode': self.passiveTorqueMode,
             'passiveTorqueTargetNm': self.passiveTorqueTargetNm,
-            'passiveTorqueMaxDampingAngleDeg': self.passiveTorqueMaxDampingAngleDeg,
+            'passiveTorqueSaturationAngleDeg': self.passiveTorqueSaturationAngleDeg,
+            'passiveTorqueMaxDampingAngleDeg': self.passiveTorqueSaturationAngleDeg,
             'passiveTorqueFollowDeadzoneDeg': self.passiveTorqueFollowDeadzoneDeg,
             'passiveTorqueCalculationHz': self.passiveTorqueCalculationHz,
             'passiveTorqueUpdateHz': self.passiveTorqueCalculationHz,
@@ -695,11 +698,14 @@ class SimpleFOCDevice:
                 self.passiveTorqueTargetNm = float(targetvalue)
             self.setCommand('ZT', str(targetvalue))
 
-    def sendPassiveTorqueMaxDampingAngle(self, targetvalue):
+    def sendPassiveTorqueSaturationAngle(self, targetvalue):
         if self.isConnected:
             if targetvalue != '':
-                self.passiveTorqueMaxDampingAngleDeg = float(targetvalue)
+                self.passiveTorqueSaturationAngleDeg = float(targetvalue)
             self.setCommand('ZA', str(targetvalue))
+
+    def sendPassiveTorqueMaxDampingAngle(self, targetvalue):
+        self.sendPassiveTorqueSaturationAngle(targetvalue)
 
     def sendPassiveTorqueFollowDeadzone(self, targetvalue):
         if self.isConnected:
@@ -886,7 +892,7 @@ class SimpleFOCDevice:
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueTarget('')
                 time.sleep(5 / 1000)
-                self.sendPassiveTorqueMaxDampingAngle('')
+                self.sendPassiveTorqueSaturationAngle('')
                 time.sleep(5 / 1000)
                 self.sendPassiveTorqueFollowDeadzone('')
                 time.sleep(5 / 1000)
@@ -966,9 +972,13 @@ class SimpleFOCDevice:
     def parsePassiveTorqueTargetResponse(self, comandResponse):
         self.passiveTorqueTargetNm = float(comandResponse.replace('PassiveTorqueTarget:', ''))
 
+    def parsePassiveTorqueSaturationAngleResponse(self, comandResponse):
+        value = comandResponse.replace('PassiveTorqueSaturationAngle:', '')
+        value = value.replace('PassiveTorqueMaxAngle:', '')
+        self.passiveTorqueSaturationAngleDeg = float(value)
+
     def parsePassiveTorqueMaxDampingAngleResponse(self, comandResponse):
-        self.passiveTorqueMaxDampingAngleDeg = float(
-            comandResponse.replace('PassiveTorqueMaxAngle:', ''))
+        self.parsePassiveTorqueSaturationAngleResponse(comandResponse)
 
     def parsePassiveTorqueFollowDeadzoneResponse(self, comandResponse):
         self.passiveTorqueFollowDeadzoneDeg = float(
@@ -1076,8 +1086,10 @@ class SimpleFOCDevice:
         elif 'Motion' in comandResponse:
             comandResponse = comandResponse.replace('Motion:', '')
             self.parseMotionResponse(comandResponse)
+        elif 'PassiveTorqueSaturationAngle' in comandResponse:
+            self.parsePassiveTorqueSaturationAngleResponse(comandResponse)
         elif 'PassiveTorqueMaxAngle' in comandResponse:
-            self.parsePassiveTorqueMaxDampingAngleResponse(comandResponse)
+            self.parsePassiveTorqueSaturationAngleResponse(comandResponse)
         elif 'PassiveTorqueFollowDeadzone' in comandResponse:
             self.parsePassiveTorqueFollowDeadzoneResponse(comandResponse)
         elif 'PassiveTorqueCalculationHz' in comandResponse:

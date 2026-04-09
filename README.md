@@ -53,7 +53,7 @@
 - 自定义“从动力矩控制”模式
 - 从动力矩模式支持以下参数：
   - 目标阻尼力矩
-  - 最大磁场阻尼角
+  - 饱和磁场阻尼角
   - 跟随死区
   - 计算频率
   - 跟随 PID `P / I / D`
@@ -131,7 +131,7 @@ D:/python/python.exe "e:/Projects/PIO/Deng FOC M1/SimpleFOCStudio-zh-master/simp
 上位机可调参数包括：
 
 - 目标阻尼力矩 `[Nm]`
-- 最大磁场阻尼角 `[deg]`
+- 饱和磁场阻尼角 `[deg]`
 - 跟随死区 `[deg]`
 - 计算频率 `[Hz]`
 - 跟随 PID `P / I / D`

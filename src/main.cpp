@@ -9,7 +9,7 @@ constexpr float kCurrentLimitAmp = 1.8f;        // 电流限制 [A]
 
 // 从动力矩控制默认参数
 constexpr float kPassiveTorqueTargetNm = 0.02f;          // 目标阻尼力矩 [Nm]
-constexpr float kPassiveTorqueMaxAngleDeg = 2.0f;        // 最大磁场阻尼角 [deg]
+constexpr float kPassiveTorqueSaturationAngleDeg = 2.0f;  // 饱和磁场阻尼角 [deg]
 constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;  // 磁场方向跟随死区 [deg]
 constexpr unsigned int kPassiveTorqueCalculationHz = 1000;  // 计算频率 [Hz]
 constexpr float kPassiveTorqueFollowPidP = 0.0864f;      // 跟随 PID 的 P
@@ -74,7 +74,7 @@ const MotorAppConfig kMotorConfig = {
     42.0f,                            // 速度限制 [rad/s]
     kMotorKvRpmPerVolt,               // 电机 KV [rpm/V]
     kPassiveTorqueTargetNm,           // 目标阻尼力矩 [Nm]
-    kPassiveTorqueMaxAngleDeg,        // 最大磁场阻尼角 [deg]
+    kPassiveTorqueSaturationAngleDeg, // 饱和磁场阻尼角 [deg]
     kPassiveTorqueFollowDeadzoneDeg,  // 磁场方向跟随死区 [deg]
     kPassiveTorqueCalculationHz,      // 计算频率 [Hz]
     kPassiveTorqueFollowPidP,         // 跟随 PID 的 P

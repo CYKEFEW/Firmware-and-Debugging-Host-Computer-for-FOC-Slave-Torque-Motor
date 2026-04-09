@@ -32,8 +32,8 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
       command_(Serial),
       motion_downsample_(config.motion_downsample),
       passive_torque_target_nm_(config.passive_torque_target_nm),
-      passive_torque_max_damping_angle_deg_(
-          config.passive_torque_max_damping_angle_deg),
+      passive_torque_saturation_angle_deg_(
+          config.passive_torque_saturation_angle_deg),
       passive_torque_follow_deadzone_deg_(
           config.passive_torque_follow_deadzone_deg),
       passive_torque_calculation_hz_(config.passive_torque_calculation_hz),
@@ -65,9 +65,9 @@ void MotorControlApp::setup() {
                 (unsigned long)config_.i2c_clock_hz,
                 (unsigned)config_.i2c_timeout_ms);
   Serial.printf(
-      "[PassiveTorque] target=%.4fNm max_angle=%.3fdeg deadzone=%.3fdeg calc=%uHz pid=(%.4f, %.4f, %.4f) current_limit=%.2fA\n",
+      "[PassiveTorque] target=%.4fNm saturation_angle=%.3fdeg deadzone=%.3fdeg calc=%uHz pid=(%.4f, %.4f, %.4f) current_limit=%.2fA\n",
       passive_torque_target_nm_,
-      passive_torque_max_damping_angle_deg_,
+      passive_torque_saturation_angle_deg_,
       passive_torque_follow_deadzone_deg_,
       passive_torque_calculation_hz_,
       passive_torque_follow_pid_p_,
@@ -127,9 +127,9 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
 
   if (cmd && cmd[0] == 'Z' && cmd[1] == 'A') {
     if (!IsCommandSentinel(cmd[2])) {
-      setPassiveTorqueMaxDampingAngleDeg(atof(cmd + 2));
+      setPassiveTorqueSaturationAngleDeg(atof(cmd + 2));
     }
-    reportPassiveTorqueMaxDampingAngleDeg();
+    reportPassiveTorqueSaturationAngleDeg();
     return;
   }
 
@@ -315,8 +315,8 @@ void MotorControlApp::setPassiveTorqueTargetNm(float target_nm) {
   passive_torque_target_nm_ = clampPassiveTorqueTargetNm(target_nm);
 }
 
-void MotorControlApp::setPassiveTorqueMaxDampingAngleDeg(float angle_deg) {
-  passive_torque_max_damping_angle_deg_ =
+void MotorControlApp::setPassiveTorqueSaturationAngleDeg(float angle_deg) {
+  passive_torque_saturation_angle_deg_ =
       constrain(fabsf(angle_deg), 0.05f, 45.0f);
   passive_follow_pid_integral_ = 0.0f;
   passive_follow_pid_prev_error_ = 0.0f;
@@ -404,7 +404,7 @@ void MotorControlApp::updatePassiveTorqueControl() {
   passive_torque_last_update_us_ = now_us;
 
   const float current_angle = motor_.shaft_angle;
-  const float max_damping_angle_rad = maxPassiveTorqueDampingAngleRad();
+  const float saturation_angle_rad = passiveTorqueSaturationAngleRad();
   const float raw_follow_error = current_angle - passive_field_angle_ref_rad_;
   const float follow_deadzone_rad = passiveFieldFollowDeadzoneRad();
 
@@ -419,7 +419,7 @@ void MotorControlApp::updatePassiveTorqueControl() {
 
   const float integral_limit =
       passive_torque_follow_pid_i_ > 1e-6f
-          ? max_damping_angle_rad / passive_torque_follow_pid_i_
+          ? saturation_angle_rad / passive_torque_follow_pid_i_
           : 0.0f;
   if (fabsf(follow_error) > 1e-6f) {
     passive_follow_pid_integral_ += follow_error * dt;
@@ -444,9 +444,9 @@ void MotorControlApp::updatePassiveTorqueControl() {
   passive_torque_damping_angle_rad_ = damping_angle;
 
   float torque_nm = 0.0f;
-  if (max_damping_angle_rad > 1e-6f) {
+  if (saturation_angle_rad > 1e-6f) {
     const float normalized_angle =
-        constrain(damping_angle / max_damping_angle_rad, -1.0f, 1.0f);
+        constrain(damping_angle / saturation_angle_rad, -1.0f, 1.0f);
     // 磁场阻尼角与输出电流采用二阶线性关系，同时保留方向符号。
     const float torque_scale = normalized_angle * fabsf(normalized_angle);
     torque_nm = -torque_scale * passive_torque_target_nm_;
@@ -478,9 +478,9 @@ void MotorControlApp::reportPassiveTorqueTargetNm() {
   Serial.println(passive_torque_target_nm_, 4);
 }
 
-void MotorControlApp::reportPassiveTorqueMaxDampingAngleDeg() {
-  Serial.print(F("PassiveTorqueMaxAngle:"));
-  Serial.println(passive_torque_max_damping_angle_deg_, 4);
+void MotorControlApp::reportPassiveTorqueSaturationAngleDeg() {
+  Serial.print(F("PassiveTorqueSaturationAngle:"));
+  Serial.println(passive_torque_saturation_angle_deg_, 4);
 }
 
 void MotorControlApp::reportPassiveTorqueFollowDeadzoneDeg() {
@@ -532,8 +532,8 @@ void MotorControlApp::reportPassiveTorqueDebug(const char* phase,
   Serial.print(passive_field_angle_ref_rad_, 4);
   Serial.print(F(" rad | damping="));
   Serial.print(passive_torque_damping_angle_rad_ * RAD_TO_DEG, 4);
-  Serial.print(F(" deg | max="));
-  Serial.print(passive_torque_max_damping_angle_deg_, 4);
+  Serial.print(F(" deg | saturation="));
+  Serial.print(passive_torque_saturation_angle_deg_, 4);
   Serial.print(F(" deg | deadzone="));
   Serial.print(passive_torque_follow_deadzone_deg_, 4);
   Serial.print(F(" deg | calc="));
@@ -559,8 +559,8 @@ float MotorControlApp::motorKtNmPerAmp() const {
   return 60.0f / (_2PI * max(config_.kv_rpm_per_volt, 1e-3f));
 }
 
-float MotorControlApp::maxPassiveTorqueDampingAngleRad() const {
-  return passive_torque_max_damping_angle_deg_ * DEG_TO_RAD;
+float MotorControlApp::passiveTorqueSaturationAngleRad() const {
+  return passive_torque_saturation_angle_deg_ * DEG_TO_RAD;
 }
 
 float MotorControlApp::passiveFieldFollowDeadzoneRad() const {

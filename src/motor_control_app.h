@@ -33,7 +33,7 @@ struct MotorAppConfig {
   float velocity_limit_rad_s;
   float kv_rpm_per_volt;
   float passive_torque_target_nm;
-  float passive_torque_max_damping_angle_deg;
+  float passive_torque_saturation_angle_deg;
   float passive_torque_follow_deadzone_deg;
   unsigned int passive_torque_calculation_hz;
   float passive_torque_follow_pid_p;
@@ -79,7 +79,7 @@ class MotorControlApp {
   void setPassiveTorqueDebug(bool enabled);
   void setMotionDownsample(unsigned int downsample);
   void setPassiveTorqueTargetNm(float target_nm);
-  void setPassiveTorqueMaxDampingAngleDeg(float angle_deg);
+  void setPassiveTorqueSaturationAngleDeg(float angle_deg);
   void setPassiveTorqueFollowDeadzoneDeg(float angle_deg);
   void setPassiveTorqueCalculationHz(unsigned int calculation_hz);
   void setPassiveTorqueFollowPidP(float value);
@@ -93,7 +93,7 @@ class MotorControlApp {
   void reportPassiveTorqueMode();
   void reportPassiveTorqueDebugEnabled();
   void reportPassiveTorqueTargetNm();
-  void reportPassiveTorqueMaxDampingAngleDeg();
+  void reportPassiveTorqueSaturationAngleDeg();
   void reportPassiveTorqueFollowDeadzoneDeg();
   void reportPassiveTorqueCalculationHz();
   void reportPassiveTorqueFollowPidP();
@@ -104,7 +104,7 @@ class MotorControlApp {
   void reportPassiveTorqueDebug(const char* phase, float iq_target) const;
   float clampPassiveTorqueTargetNm(float target_nm) const;
   float motorKtNmPerAmp() const;
-  float maxPassiveTorqueDampingAngleRad() const;
+  float passiveTorqueSaturationAngleRad() const;
   float passiveFieldFollowDeadzoneRad() const;
 
   static MotorControlApp* active_instance_;
@@ -121,7 +121,7 @@ class MotorControlApp {
   bool passive_torque_debug_enabled_ = false;
   unsigned int motion_downsample_ = 0;
   float passive_torque_target_nm_;
-  float passive_torque_max_damping_angle_deg_;
+  float passive_torque_saturation_angle_deg_;
   float passive_torque_follow_deadzone_deg_;
   unsigned int passive_torque_calculation_hz_;
   float passive_torque_follow_pid_p_;
