@@ -29,7 +29,7 @@ DEFAULT_ROTATION_RETRY_LIMIT = 5
 # 从动力矩跟随 PID 自动测量的阻尼力矩终值默认值。
 DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM = 0.05
 # 速度环 PID 自动测量的目标速度默认值，单位 rpm。
-DEFAULT_VELOCITY_TARGET_RPM = 50.0
+DEFAULT_VELOCITY_TARGET_RPM = 100.0
 # 从动力矩跟随 PID 自动测量的阻尼力矩扫描挡数默认值。
 DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 4
 # 判定进入正常旋转工况的默认速度阈值。
@@ -838,9 +838,17 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             (self.sampleDurationLabel, self.sampleDurationSpin),
             (self.maxIterationsLabel, self.maxIterationsSpin),
         )
-        for row_index, (label_widget, input_widget) in enumerate(widgets):
-            self.settingsLayout.addWidget(label_widget, row_index, 0)
-            self.settingsLayout.addWidget(input_widget, row_index, 1)
+        for index, (label_widget, input_widget) in enumerate(widgets):
+            row_index = index // 2
+            column_group = index % 2
+            base_column = column_group * 2
+            self.settingsLayout.addWidget(label_widget, row_index, base_column)
+            self.settingsLayout.addWidget(input_widget, row_index, base_column + 1)
+
+        self.settingsLayout.setColumnStretch(0, 0)
+        self.settingsLayout.setColumnStretch(1, 1)
+        self.settingsLayout.setColumnStretch(2, 0)
+        self.settingsLayout.setColumnStretch(3, 1)
 
         self.mainLayout.addWidget(self.settingsGroup)
 
