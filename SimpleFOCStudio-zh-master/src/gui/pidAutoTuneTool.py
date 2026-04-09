@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import statistics
@@ -19,7 +19,6 @@ LOOP_DEFINITIONS = (
     ('passive_follow_running', '从动力矩跟随 PID（正常旋转）', False, True, False, False),
 )
 
-
 # 自动测量时的状态采样频率。
 DEFAULT_MEASUREMENT_RATE_HZ = 50
 # 正常旋转工况等待手动转动的最长时间。
@@ -30,13 +29,13 @@ DEFAULT_ROTATION_RETRY_LIMIT = 5
 # 从动力矩跟随 PID 自动测量的阻尼力矩终值默认值。
 DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM = 0.05
 # 从动力矩跟随 PID 自动测量的阻尼力矩扫描挡数默认值。
-DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 5
+DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 10
 # 判定进入正常旋转工况的默认速度阈值。
 DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S = 1.0
 # 速度需要连续超过/低于阈值的默认持续时间。
 DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S = 1.0
-# 从动力矩跟随 PID 每次改 PID 或切换目标前的默认电机缓冲时间。
-DEFAULT_PASSIVE_FOLLOW_BUFFER_S = 1.0
+# 上位机自动测量的默认采样时间。
+DEFAULT_SAMPLE_DURATION_S = 1.5
 # 从释放切回从动力矩时的软启动步数。
 DEFAULT_PASSIVE_FOLLOW_SOFTSTART_STEPS = (0.25, 0.5, 1.0)
 # 从释放切回从动力矩时每一步软启动的间隔时间。
@@ -68,7 +67,7 @@ class PidAutoTuneWorker(QtCore.QThread):
             passive_follow_final_target_nm,
             passive_follow_step_count,
             passive_follow_running_hold_s,
-            passive_follow_buffer_s,
+            sample_duration_s,
             parent=None):
         super().__init__(parent)
         self.device = device
@@ -77,7 +76,7 @@ class PidAutoTuneWorker(QtCore.QThread):
         self.passive_follow_final_target_nm = passive_follow_final_target_nm
         self.passive_follow_step_count_value = passive_follow_step_count
         self.passive_follow_running_hold_s = passive_follow_running_hold_s
-        self.passive_follow_buffer_s = passive_follow_buffer_s
+        self.sample_duration_s = sample_duration_s
         self.measurement_rate_hz = DEFAULT_MEASUREMENT_RATE_HZ
         self.rotation_detect_timeout_s = DEFAULT_ROTATION_DETECT_TIMEOUT_S
         self.rotation_retry_limit = DEFAULT_ROTATION_RETRY_LIMIT
@@ -190,16 +189,17 @@ class PidAutoTuneWorker(QtCore.QThread):
         return 'passiveTorqueDampingAngleDeg'
 
     def _spec_for_loop(self, loop_name):
+        capture_s = self._sample_duration_s()
         if loop_name in ('current_q', 'current_d'):
             step = min(max(self._to_float(self.device.currentLimit, 1.8) * 0.2, 0.12), 0.5)
-            return {'step': step, 'settle': 0.25, 'capture': 0.60}
+            return {'step': step, 'settle': 0.25, 'capture': capture_s}
         if loop_name == 'velocity':
             step = min(max(self._to_float(self.device.velocityLimit, 20.0) * 0.08, 1.0), 6.0)
-            return {'step': step, 'settle': 0.30, 'capture': 0.80}
+            return {'step': step, 'settle': 0.30, 'capture': capture_s}
         if loop_name == 'angle':
-            return {'step': 0.35, 'settle': 0.35, 'capture': 1.00}
+            return {'step': 0.35, 'settle': 0.35, 'capture': capture_s}
         deadzone = self._to_float(self.device.passiveTorqueFollowDeadzoneDeg, 0.8)
-        return {'step': max(deadzone + 0.4, 0.8), 'settle': 0.18, 'capture': 0.45, 'hold': 0.18}
+        return {'step': max(deadzone + 0.4, 0.8), 'settle': 0.18, 'capture': capture_s, 'hold': min(0.18, capture_s)}
 
     def _capture_samples(self, loop_name, duration_s):
         attr_name = self._measurement_attr(loop_name)
@@ -340,20 +340,17 @@ class PidAutoTuneWorker(QtCore.QThread):
     def _rotation_hold_threshold_s(self):
         return max(0.1, self._to_float(self.passive_follow_running_hold_s, DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S))
 
-    def _passive_follow_buffer_time_s(self):
-        return max(0.1, self._to_float(self.passive_follow_buffer_s, DEFAULT_PASSIVE_FOLLOW_BUFFER_S))
+    def _sample_duration_s(self):
+        return max(0.2, self._to_float(self.sample_duration_s, DEFAULT_SAMPLE_DURATION_S))
 
     def _stabilize_passive_follow_motor(self, reason_text=''):
-        buffer_s = self._passive_follow_buffer_time_s()
         if reason_text:
-            self._log('从动力矩缓冲 | %s | 释放稳定 %.2f s' % (reason_text, buffer_s))
+            self._log('从动力矩切换 | %s | 切到释放态' % reason_text)
         self.device.sendPassiveTorqueTarget('0')
         self._sleep(0.03)
         self.device.sendPassiveTorqueMode('0')
         self._sleep(0.03)
         self.device.sendReleaseMode('1')
-        self._sleep(buffer_s)
-        self.device.sendPassiveTorqueFieldOffset('0')
         self._sleep(0.05)
 
     def _engage_passive_follow_target(self, target_nm, reason_text=''):
@@ -409,7 +406,7 @@ class PidAutoTuneWorker(QtCore.QThread):
         pid_values = self._snapshot_loop_values(loop_name)
         self._log(
             '%s 配置 | final_target=%.4f Nm | steps=%d | deadzone=%.3f deg | calc=%d Hz | '
-            'running_threshold=%.3f rad/s | hold_threshold=%.2f s | buffer=%.2f s | '
+            'running_threshold=%.3f rad/s | hold_threshold=%.2f s | sample=%.2f s | '
             'pid=(%.5f, %.5f, %.5f) | offset_step=%.3f deg'
             % (
                 self._loop_label(loop_name),
@@ -419,7 +416,7 @@ class PidAutoTuneWorker(QtCore.QThread):
                 int(self._to_float(self.device.passiveTorqueCalculationHz, 1000)),
                 self._running_threshold(),
                 self._rotation_hold_threshold_s(),
-                self._passive_follow_buffer_time_s(),
+                self._sample_duration_s(),
                 pid_values['P'],
                 pid_values['I'],
                 pid_values['D'],
@@ -601,7 +598,8 @@ class PidAutoTuneWorker(QtCore.QThread):
             trial_values = dict(values)
             trial_values[term_name] = candidate_value
             if loop_name.startswith('passive_follow'):
-                self._stabilize_passive_follow_motor('%s 调整 %s 前' % (self._loop_label(loop_name), term_name))
+                self._stabilize_passive_follow_motor(
+                    '%s 调整 %s 前' % (self._loop_label(loop_name), term_name))
                 self._set_loop_values(loop_name, trial_values)
                 self._configure_loop(loop_name)
             else:
@@ -795,12 +793,12 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.passiveFollowRunningHoldSpin.setSingleStep(0.1)
         self.passiveFollowRunningHoldSpin.setValue(DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S)
 
-        self.passiveFollowBufferLabel = QtWidgets.QLabel('电机缓冲时间[s]:')
-        self.passiveFollowBufferSpin = QtWidgets.QDoubleSpinBox()
-        self.passiveFollowBufferSpin.setRange(0.1, 10.0)
-        self.passiveFollowBufferSpin.setDecimals(2)
-        self.passiveFollowBufferSpin.setSingleStep(0.1)
-        self.passiveFollowBufferSpin.setValue(DEFAULT_PASSIVE_FOLLOW_BUFFER_S)
+        self.sampleDurationLabel = QtWidgets.QLabel('采样时间[s]:')
+        self.sampleDurationSpin = QtWidgets.QDoubleSpinBox()
+        self.sampleDurationSpin.setRange(0.2, 10.0)
+        self.sampleDurationSpin.setDecimals(2)
+        self.sampleDurationSpin.setSingleStep(0.1)
+        self.sampleDurationSpin.setValue(DEFAULT_SAMPLE_DURATION_S)
 
         self.maxIterationsLabel = QtWidgets.QLabel('最大迭代次数:')
         self.maxIterationsSpin = QtWidgets.QSpinBox()
@@ -812,7 +810,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             (self.passiveFollowStepCountLabel, self.passiveFollowStepCountSpin),
             (self.passiveFollowRunningThresholdLabel, self.passiveFollowRunningThresholdSpin),
             (self.passiveFollowRunningHoldLabel, self.passiveFollowRunningHoldSpin),
-            (self.passiveFollowBufferLabel, self.passiveFollowBufferSpin),
+            (self.sampleDurationLabel, self.sampleDurationSpin),
             (self.maxIterationsLabel, self.maxIterationsSpin),
         )
         for row_index, (label_widget, input_widget) in enumerate(widgets):
@@ -823,10 +821,11 @@ class PidAutoTuneTool(WorkAreaTabWidget):
 
         self.noteLabel = QtWidgets.QLabel(
             '说明：\n'
-            '1. 从动力矩跟随 PID 每次改 PID 或切换阻尼挡位前，都会先完全释放电机并等待“电机缓冲时间”。\n'
+            '1. 从动力矩跟随 PID 的释放缓冲已经下沉到固件，上位机不再额外缓冲。\n'
             '2. 正常旋转工况只有在转速连续高于“旋转工况阈值”并保持“手动旋转时间阈值”后，才开始该挡测量。\n'
             '3. 测量中如果转速连续低于阈值超过“手动旋转时间阈值”，该挡结果判无效并重扫。\n'
-            '4. 电流 D PID 仍然基于当前工程可用链路做代理测量。')
+            '4. 采样时间[s]用于设置上位机每轮测量的采样窗口。\n'
+            '5. 电流 D PID 仍然基于当前工程可用链路做代理测量。')
         self.noteLabel.setWordWrap(True)
         self.mainLayout.addWidget(self.noteLabel)
 
@@ -908,7 +907,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             self.passiveFollowFinalTorqueSpin.value(),
             self.passiveFollowStepCountSpin.value(),
             self.passiveFollowRunningHoldSpin.value(),
-            self.passiveFollowBufferSpin.value(),
+            self.sampleDurationSpin.value(),
             self)
         self.worker.logMessage.connect(self._appendLog)
         self.worker.statusMessage.connect(self.statusLabel.setText)
@@ -930,3 +929,4 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self._appendLog(message)
         if not success:
             QtWidgets.QMessageBox.warning(self, 'PID自动测量', message)
+
