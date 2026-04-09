@@ -28,10 +28,12 @@ DEFAULT_ROTATION_RETRY_LIMIT = 5
 
 # 从动力矩跟随 PID 自动测量的阻尼力矩终值默认值。
 DEFAULT_PASSIVE_FOLLOW_FINAL_TORQUE_NM = 0.05
+# 速度环 PID 自动测量的目标速度默认值，单位 rpm。
+DEFAULT_VELOCITY_TARGET_RPM = 50.0
 # 从动力矩跟随 PID 自动测量的阻尼力矩扫描挡数默认值。
-DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 10
+DEFAULT_PASSIVE_FOLLOW_STEP_COUNT = 4
 # 判定进入正常旋转工况的默认速度阈值。
-DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S = 1.0
+DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S = 0.5
 # 速度需要连续超过/低于阈值的默认持续时间。
 DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S = 1.0
 # 上位机自动测量的默认采样时间。
@@ -64,6 +66,7 @@ class PidAutoTuneWorker(QtCore.QThread):
             device,
             selected_options,
             max_iterations,
+            velocity_target_rpm,
             passive_follow_final_target_nm,
             passive_follow_step_count,
             passive_follow_running_hold_s,
@@ -73,6 +76,7 @@ class PidAutoTuneWorker(QtCore.QThread):
         self.device = device
         self.selected_options = selected_options
         self.max_iterations = max_iterations
+        self.velocity_target_rpm = velocity_target_rpm
         self.passive_follow_final_target_nm = passive_follow_final_target_nm
         self.passive_follow_step_count_value = passive_follow_step_count
         self.passive_follow_running_hold_s = passive_follow_running_hold_s
@@ -194,7 +198,7 @@ class PidAutoTuneWorker(QtCore.QThread):
             step = min(max(self._to_float(self.device.currentLimit, 1.8) * 0.2, 0.12), 0.5)
             return {'step': step, 'settle': 0.25, 'capture': capture_s}
         if loop_name == 'velocity':
-            step = min(max(self._to_float(self.device.velocityLimit, 20.0) * 0.08, 1.0), 6.0)
+            step = self._velocity_target_rad_s()
             return {'step': step, 'settle': 0.30, 'capture': capture_s}
         if loop_name == 'angle':
             return {'step': 0.35, 'settle': 0.35, 'capture': capture_s}
@@ -343,6 +347,10 @@ class PidAutoTuneWorker(QtCore.QThread):
     def _sample_duration_s(self):
         return max(0.2, self._to_float(self.sample_duration_s, DEFAULT_SAMPLE_DURATION_S))
 
+    def _velocity_target_rad_s(self):
+        rpm = max(1.0, self._to_float(self.velocity_target_rpm, DEFAULT_VELOCITY_TARGET_RPM))
+        return rpm * 2.0 * 3.141592653589793 / 60.0
+
     def _stabilize_passive_follow_motor(self, reason_text=''):
         if reason_text:
             self._log('从动力矩切换 | %s | 切到释放态' % reason_text)
@@ -427,6 +435,15 @@ class PidAutoTuneWorker(QtCore.QThread):
             self._configure_passive_follow_loop(loop_name)
         else:
             self._configure_standard_loop(loop_name)
+            if loop_name == 'velocity':
+                self._log(
+                    '%s 配置 | target=%.2f rpm (%.4f rad/s) | sample=%.2f s'
+                    % (
+                        self._loop_label(loop_name),
+                        self._to_float(self.velocity_target_rpm, DEFAULT_VELOCITY_TARGET_RPM),
+                        self._velocity_target_rad_s(),
+                        self._sample_duration_s(),
+                    ))
 
     def _collect_standard_metrics(self, loop_name):
         spec = self._spec_for_loop(loop_name)
@@ -764,6 +781,13 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.settingsGroup = QtWidgets.QGroupBox('测量参数')
         self.settingsLayout = QtWidgets.QGridLayout(self.settingsGroup)
 
+        self.velocityTargetLabel = QtWidgets.QLabel('速度环目标速度[rpm]:')
+        self.velocityTargetSpin = QtWidgets.QDoubleSpinBox()
+        self.velocityTargetSpin.setRange(1.0, 5000.0)
+        self.velocityTargetSpin.setDecimals(1)
+        self.velocityTargetSpin.setSingleStep(5.0)
+        self.velocityTargetSpin.setValue(DEFAULT_VELOCITY_TARGET_RPM)
+
         self.passiveFollowFinalTorqueLabel = QtWidgets.QLabel('阻尼力矩终值[Nm]:')
         self.passiveFollowFinalTorqueSpin = QtWidgets.QDoubleSpinBox()
         self.passiveFollowFinalTorqueSpin.setRange(0.01, 1.0)
@@ -806,6 +830,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.maxIterationsSpin.setValue(DEFAULT_MAX_ITERATIONS)
 
         widgets = (
+            (self.velocityTargetLabel, self.velocityTargetSpin),
             (self.passiveFollowFinalTorqueLabel, self.passiveFollowFinalTorqueSpin),
             (self.passiveFollowStepCountLabel, self.passiveFollowStepCountSpin),
             (self.passiveFollowRunningThresholdLabel, self.passiveFollowRunningThresholdSpin),
@@ -825,7 +850,8 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             '2. 正常旋转工况只有在转速连续高于“旋转工况阈值”并保持“手动旋转时间阈值”后，才开始该挡测量。\n'
             '3. 测量中如果转速连续低于阈值超过“手动旋转时间阈值”，该挡结果判无效并重扫。\n'
             '4. 采样时间[s]用于设置上位机每轮测量的采样窗口。\n'
-            '5. 电流 D PID 仍然基于当前工程可用链路做代理测量。')
+            '5. 速度 PID 使用“速度环目标速度[rpm]”作为测量目标。\n'
+            '6. 电流 D PID 仍然基于当前工程可用链路做代理测量。')
         self.noteLabel.setWordWrap(True)
         self.mainLayout.addWidget(self.noteLabel)
 
@@ -904,6 +930,7 @@ class PidAutoTuneTool(WorkAreaTabWidget):
             self.device,
             self._selected_options(),
             self.maxIterationsSpin.value(),
+            self.velocityTargetSpin.value(),
             self.passiveFollowFinalTorqueSpin.value(),
             self.passiveFollowStepCountSpin.value(),
             self.passiveFollowRunningHoldSpin.value(),
@@ -929,4 +956,3 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self._appendLog(message)
         if not success:
             QtWidgets.QMessageBox.warning(self, 'PID自动测量', message)
-
