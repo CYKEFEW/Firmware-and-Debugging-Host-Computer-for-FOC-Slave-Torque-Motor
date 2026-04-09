@@ -1270,6 +1270,13 @@ class SerialPortReceiveHandler(QtCore.QThread):
             self.commandDataReceived.emit(data.rstrip())
         self.rawDataReceived.emit(data.rstrip())
 
+    def decode_serial_data(self, reading):
+        try:
+            return reading.decode('utf-8')
+        except UnicodeDecodeError:
+            logging.warning('Serial decode failed with utf-8, falling back with replacement: %r', reading)
+            return reading.decode('utf-8', errors='replace')
+
     def isDataReceivedMonitoring(self, data):
         if data[0].isdigit() or data[0] == '-':
             return True
@@ -1289,7 +1296,7 @@ class SerialPortReceiveHandler(QtCore.QThread):
                     if self.serialComm.isOpen():
                         reading = self.serialComm.readline()
                         if reading:
-                            self.handle_received_data(reading.decode())
+                            self.handle_received_data(self.decode_serial_data(reading))
         except SerialException as serialException:
             logging.error(serialException, exc_info=True)
         except TypeError as typeError:

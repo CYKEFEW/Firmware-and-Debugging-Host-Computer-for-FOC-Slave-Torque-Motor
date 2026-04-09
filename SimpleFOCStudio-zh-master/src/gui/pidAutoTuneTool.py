@@ -37,6 +37,10 @@ DEFAULT_PASSIVE_FOLLOW_RUNNING_THRESHOLD_RAD_S = 1.0
 DEFAULT_PASSIVE_FOLLOW_RUNNING_HOLD_S = 1.0
 # 从动力矩跟随 PID 每次改 PID 或切换目标前的默认电机缓冲时间。
 DEFAULT_PASSIVE_FOLLOW_BUFFER_S = 1.0
+# 从释放切回从动力矩时的软启动步数。
+DEFAULT_PASSIVE_FOLLOW_SOFTSTART_STEPS = (0.25, 0.5, 1.0)
+# 从释放切回从动力矩时每一步软启动的间隔时间。
+DEFAULT_PASSIVE_FOLLOW_SOFTSTART_STEP_S = 0.06
 # 每个 PID 项的默认最大迭代次数。
 DEFAULT_MAX_ITERATIONS = 6
 
@@ -343,12 +347,27 @@ class PidAutoTuneWorker(QtCore.QThread):
         buffer_s = self._passive_follow_buffer_time_s()
         if reason_text:
             self._log('从动力矩缓冲 | %s | 释放稳定 %.2f s' % (reason_text, buffer_s))
-        self.device.sendPassiveTorqueFieldOffset('0')
+        self.device.sendPassiveTorqueTarget('0')
         self._sleep(0.03)
         self.device.sendPassiveTorqueMode('0')
         self._sleep(0.03)
         self.device.sendReleaseMode('1')
         self._sleep(buffer_s)
+        self.device.sendPassiveTorqueFieldOffset('0')
+        self._sleep(0.05)
+
+    def _engage_passive_follow_target(self, target_nm, reason_text=''):
+        if reason_text:
+            self._log('从动力矩软接入 | %s | target=%.4f Nm' % (reason_text, target_nm))
+        self.device.sendPassiveTorqueTarget('0')
+        self._sleep(0.03)
+        self.device.sendReleaseMode('0')
+        self._sleep(0.05)
+        self.device.sendPassiveTorqueMode('1')
+        self._sleep(0.08)
+        for scale in DEFAULT_PASSIVE_FOLLOW_SOFTSTART_STEPS:
+            self.device.sendPassiveTorqueTarget(str(target_nm * scale))
+            self._sleep(DEFAULT_PASSIVE_FOLLOW_SOFTSTART_STEP_S)
 
     def _configure_standard_loop(self, loop_name):
         self.device.sendPassiveTorqueMode('0')
@@ -373,18 +392,16 @@ class PidAutoTuneWorker(QtCore.QThread):
         test_target = self._passive_follow_test_target_nm()
         spec = self._spec_for_loop(loop_name)
         self._stabilize_passive_follow_motor('进入 %s 测量前' % self._loop_label(loop_name))
-        self.device.sendReleaseMode('0')
-        self._sleep(0.05)
         self.device.sendDeviceStatus('1')
         self._sleep(0.05)
-        self.device.sendPassiveTorqueTarget(str(test_target))
-        self._sleep(0.05)
-        self.device.sendPassiveTorqueFieldOffset('0')
-        self._sleep(0.05)
         if loop_name == 'passive_follow_static':
-            self.device.sendPassiveTorqueMode('1')
+            self._engage_passive_follow_target(test_target, '进入低速/静止工况测量')
             self._sleep(0.20)
         else:
+            self.device.sendPassiveTorqueTarget('0')
+            self._sleep(0.03)
+            self.device.sendPassiveTorqueFieldOffset('0')
+            self._sleep(0.03)
             self.device.sendPassiveTorqueMode('0')
             self._sleep(0.05)
             self.device.sendReleaseMode('1')
@@ -430,7 +447,7 @@ class PidAutoTuneWorker(QtCore.QThread):
         self._sleep(spec['settle'])
         return self._evaluate_step_response(samples, spec['step'])
 
-    def _wait_for_manual_rotation(self):
+    def _wait_for_manual_rotation(self, target_nm):
         threshold = self._running_threshold()
         hold_required_s = self._rotation_hold_threshold_s()
         self.device.sendPassiveTorqueMode('0')
@@ -449,10 +466,7 @@ class PidAutoTuneWorker(QtCore.QThread):
                 if hold_start is None:
                     hold_start = time.monotonic()
                 if (time.monotonic() - hold_start) >= hold_required_s:
-                    self.device.sendReleaseMode('0')
-                    self._sleep(0.05)
-                    self.device.sendPassiveTorqueMode('1')
-                    self._sleep(0.15)
+                    self._engage_passive_follow_target(target_nm, '检测到持续旋转后接入从动力矩')
                     self._log(
                         '已检测到旋转速度 %.4f rad/s，且持续 %.2f s，进入正常旋转工况测量。'
                         % (velocity, hold_required_s))
@@ -485,9 +499,9 @@ class PidAutoTuneWorker(QtCore.QThread):
                     self._stabilize_passive_follow_motor(
                         '%s 挡位 %02d/%02d 设置目标前'
                         % (self._loop_label(loop_name), step_index, step_count))
-                    self.device.sendPassiveTorqueTarget(str(target_nm))
-                    self._sleep(0.12)
-                    if not self._wait_for_manual_rotation():
+                    self.device.sendPassiveTorqueTarget('0')
+                    self._sleep(0.05)
+                    if not self._wait_for_manual_rotation(target_nm):
                         return {'score': 1e9, 'peak': 0.0, 'residual': 0.0, 'sample_count': len(metrics)}
                     self.device.sendPassiveTorqueFieldOffset('0')
                     self._sleep(spec['settle'])
@@ -524,12 +538,10 @@ class PidAutoTuneWorker(QtCore.QThread):
                 self._stabilize_passive_follow_motor(
                     '%s 挡位 %02d/%02d 设置目标前'
                     % (self._loop_label(loop_name), step_index, step_count))
-                self.device.sendPassiveTorqueTarget(str(target_nm))
-                self._sleep(0.12)
-                self.device.sendReleaseMode('0')
-                self._sleep(0.05)
-                self.device.sendPassiveTorqueMode('1')
-                self._sleep(0.15)
+                self._engage_passive_follow_target(
+                    target_nm,
+                    '%s 挡位 %02d/%02d 接入测量'
+                    % (self._loop_label(loop_name), step_index, step_count))
                 self.device.sendPassiveTorqueFieldOffset('0')
                 self._sleep(spec['settle'])
                 self.device.sendPassiveTorqueFieldOffset(str(spec['step']))

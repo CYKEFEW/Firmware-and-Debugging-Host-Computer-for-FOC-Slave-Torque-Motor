@@ -39,6 +39,8 @@ MotorControlApp::MotorControlApp(const MotorAppConfig& config)
       passive_torque_running_speed_threshold_rad_s_(
           config.passive_torque_running_speed_threshold_rad_s),
       passive_torque_calculation_hz_(config.passive_torque_calculation_hz),
+      passive_torque_transition_buffer_ms_(
+          config.passive_torque_transition_buffer_ms),
       passive_torque_follow_pid_low_p_(config.passive_torque_follow_pid_low_p),
       passive_torque_follow_pid_low_i_(config.passive_torque_follow_pid_low_i),
       passive_torque_follow_pid_low_d_(config.passive_torque_follow_pid_low_d),
@@ -247,6 +249,7 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
   if (cmd && cmd[0] == 'E' && !IsCommandSentinel(cmd[1])) {
     release_mode_ = false;
     passive_torque_mode_ = false;
+    passive_torque_transition_pending_ = false;
     passive_torque_damping_angle_rad_ = 0.0f;
     passive_follow_pid_low_integral_ = 0.0f;
     passive_follow_pid_low_prev_error_ = 0.0f;
@@ -309,6 +312,7 @@ void MotorControlApp::initializeCurrentSense() {
 
 void MotorControlApp::setReleaseMode(bool enabled) {
   release_mode_ = enabled;
+  passive_torque_transition_pending_ = false;
   passive_torque_damping_angle_rad_ = 0.0f;
   passive_follow_pid_low_integral_ = 0.0f;
   passive_follow_pid_low_prev_error_ = 0.0f;
@@ -327,6 +331,7 @@ void MotorControlApp::setReleaseMode(bool enabled) {
 void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   passive_torque_mode_ = enabled;
   motor_.target = 0.0f;
+  passive_torque_transition_pending_ = false;
   passive_torque_damping_angle_rad_ = 0.0f;
   passive_follow_pid_low_integral_ = 0.0f;
   passive_follow_pid_low_prev_error_ = 0.0f;
@@ -335,16 +340,18 @@ void MotorControlApp::setPassiveTorqueMode(bool enabled) {
   passive_follow_using_run_pid_ = false;
 
   if (passive_torque_mode_) {
-    release_mode_ = false;
+    release_mode_ = true;
+    passive_torque_transition_pending_ = true;
+    passive_torque_transition_start_us_ = micros();
     motor_.controller = MotionControlType::torque;
     motor_.torque_controller = TorqueControlType::foc_current;
     if (!motor_.enabled) {
       motor_.enable();
     }
-    driver_.enable();
-    resetPassiveTorqueFieldReference();
-    reportPassiveTorqueDebug("enable", 0.0f);
+    driver_.disable();
+    reportPassiveTorqueDebug("pending", 0.0f);
   } else {
+    release_mode_ = false;
     resetPassiveTorqueFieldReference();
     reportPassiveTorqueDebug("disable", 0.0f);
   }
@@ -461,6 +468,25 @@ void MotorControlApp::updateReleasedState() {
           motor_.current_sense->getFOCCurrents(motor_.electrical_angle);
       motor_.current.q = motor_.LPF_current_q(motor_.current.q);
       motor_.current.d = motor_.LPF_current_d(motor_.current.d);
+    }
+  }
+
+  if (passive_torque_transition_pending_) {
+    const unsigned long now_us = micros();
+    const unsigned long buffer_us =
+        static_cast<unsigned long>(passive_torque_transition_buffer_ms_) * 1000UL;
+    if ((now_us - passive_torque_transition_start_us_) >= buffer_us) {
+      resetPassiveTorqueFieldReference();
+      passive_torque_transition_pending_ = false;
+      release_mode_ = false;
+      motor_.target = 0.0f;
+      if (!motor_.enabled) {
+        motor_.enable();
+      }
+      driver_.enable();
+      passive_torque_last_update_us_ = now_us;
+      reportPassiveTorqueDebug("align", 0.0f);
+      return;
     }
   }
 

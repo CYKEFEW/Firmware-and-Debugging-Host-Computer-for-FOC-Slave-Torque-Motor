@@ -37,6 +37,7 @@ struct MotorAppConfig {
   float passive_torque_follow_deadzone_deg;
   float passive_torque_running_speed_threshold_rad_s;
   unsigned int passive_torque_calculation_hz;
+  unsigned int passive_torque_transition_buffer_ms;
   float passive_torque_follow_pid_low_p;
   float passive_torque_follow_pid_low_i;
   float passive_torque_follow_pid_low_d;
@@ -138,6 +139,7 @@ class MotorControlApp {
   float passive_torque_follow_deadzone_deg_;
   float passive_torque_running_speed_threshold_rad_s_;
   unsigned int passive_torque_calculation_hz_;
+  unsigned int passive_torque_transition_buffer_ms_;
   float passive_torque_follow_pid_low_p_;
   float passive_torque_follow_pid_low_i_;
   float passive_torque_follow_pid_low_d_;
@@ -152,4 +154,6 @@ class MotorControlApp {
   float passive_follow_pid_run_integral_ = 0.0f;
   float passive_follow_pid_run_prev_error_ = 0.0f;
   bool passive_follow_using_run_pid_ = false;
+  bool passive_torque_transition_pending_ = false;
+  unsigned long passive_torque_transition_start_us_ = 0;
 };

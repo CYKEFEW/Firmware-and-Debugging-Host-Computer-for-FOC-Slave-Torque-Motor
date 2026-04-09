@@ -10,13 +10,14 @@ constexpr float kCurrentLimitAmp = 1.8f;             // 电流限制 [A]
 // 从动力矩控制默认参数
 constexpr float kPassiveTorqueTargetNm = 0.02f;      // 目标阻尼力矩 [Nm]
 constexpr float kPassiveTorqueSaturationAngleDeg = 2.0f;  // 饱和磁场阻尼角 [deg]
-constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;   // 磁场方向跟随死区 [deg]
+constexpr float kPassiveTorqueFollowDeadzoneDeg = 0.8f;   // 跟随死区 [deg]
 constexpr float kPassiveTorqueRunningSpeedThresholdRadS = 2.0f;  // 旋转工况阈值 [rad/s]
 constexpr unsigned int kPassiveTorqueCalculationHz = 1000;       // 计算频率 [Hz]
-constexpr float kPassiveTorqueFollowPidLowP = 0.0864f;           // 低速/静止跟随 PID P
+constexpr unsigned int kPassiveTorqueTransitionBufferMs = 1000;  // 切回从动力矩前的释放缓冲时间 [ms]
+constexpr float kPassiveTorqueFollowPidLowP = 0.0311f;           // 低速/静止跟随 PID P
 constexpr float kPassiveTorqueFollowPidLowI = 0.0f;              // 低速/静止跟随 PID I
 constexpr float kPassiveTorqueFollowPidLowD = 0.0f;              // 低速/静止跟随 PID D
-constexpr float kPassiveTorqueFollowPidRunP = 0.0400f;           // 旋转工况跟随 PID P
+constexpr float kPassiveTorqueFollowPidRunP = 0.0311f;           // 旋转工况跟随 PID P
 constexpr float kPassiveTorqueFollowPidRunI = 0.0f;              // 旋转工况跟随 PID I
 constexpr float kPassiveTorqueFollowPidRunD = 0.0f;              // 旋转工况跟随 PID D
 
@@ -26,16 +27,15 @@ constexpr float kVelocityPidI = 0.12f;              // 速度环 I
 constexpr float kVelocityPidD = 0.0f;               // 速度环 D
 constexpr float kVelocityLpfTf = 0.01f;             // 速度低通滤波时间常数
 constexpr float kAnglePidP = 20.0f;                 // 角度环 P
-
 constexpr float kCurrentQPidP = 3.0f;               // 电流 Q 环 P
-constexpr float kCurrentQPidI = 300.0f;             // 电流 Q 环 I
+constexpr float kCurrentQPidI = 120.0f;             // 电流 Q 环 I
 constexpr float kCurrentQPidD = 0.0f;               // 电流 Q 环 D
 constexpr float kCurrentQLpfTf = 0.005f;            // 电流 Q 环低通滤波时间常数
-constexpr float kCurrentDPidP = 3.0f;               // 电流 D 环 P
-constexpr float kCurrentDPidI = 300.0f;             // 电流 D 环 I
+constexpr float kCurrentDPidP = 7.3728f;               // 电流 D 环 P
+constexpr float kCurrentDPidI = 279.936f;             // 电流 D 环 I
 constexpr float kCurrentDPidD = 0.0f;               // 电流 D 环 D
 constexpr float kCurrentDLpfTf = 0.005f;            // 电流 D 环低通滤波时间常数
-constexpr unsigned int kMotionDownsample = 0;       // 0 表示不降采样
+constexpr unsigned int kMotionDownsample = 0;       // 运动控制降采样
 
 // 传感器与驱动引脚
 constexpr int kI2cSdaPin = 23;                      // I2C SDA
@@ -77,9 +77,10 @@ const MotorAppConfig kMotorConfig = {
     kMotorKvRpmPerVolt,               // 电机 KV [rpm/V]
     kPassiveTorqueTargetNm,           // 目标阻尼力矩 [Nm]
     kPassiveTorqueSaturationAngleDeg, // 饱和磁场阻尼角 [deg]
-    kPassiveTorqueFollowDeadzoneDeg,  // 磁场方向跟随死区 [deg]
+    kPassiveTorqueFollowDeadzoneDeg,  // 跟随死区 [deg]
     kPassiveTorqueRunningSpeedThresholdRadS,  // 旋转工况阈值 [rad/s]
     kPassiveTorqueCalculationHz,      // 计算频率 [Hz]
+    kPassiveTorqueTransitionBufferMs, // 切回从动力矩前的释放缓冲时间 [ms]
     kPassiveTorqueFollowPidLowP,      // 低速/静止跟随 PID P
     kPassiveTorqueFollowPidLowI,      // 低速/静止跟随 PID I
     kPassiveTorqueFollowPidLowD,      // 低速/静止跟随 PID D
