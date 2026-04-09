@@ -677,6 +677,14 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.maxIterationsSpin.setRange(1, 20)
         self.maxIterationsSpin.setValue(6)
         options_layout.addWidget(self.maxIterationsSpin)
+        options_layout.addWidget(QtWidgets.QLabel('旋转工况阈值[rad/s]:'))
+        self.passiveFollowRunningThresholdSpin = QtWidgets.QDoubleSpinBox()
+        self.passiveFollowRunningThresholdSpin.setDecimals(2)
+        self.passiveFollowRunningThresholdSpin.setRange(0.1, 100.0)
+        self.passiveFollowRunningThresholdSpin.setSingleStep(0.1)
+        self.passiveFollowRunningThresholdSpin.setValue(
+            max(0.1, float(getattr(self.device, 'passiveTorqueRunningSpeedThresholdRadS', 2.0))))
+        options_layout.addWidget(self.passiveFollowRunningThresholdSpin)
         options_layout.addStretch(1)
         root_layout.addLayout(options_layout)
 
@@ -765,6 +773,8 @@ class PidAutoTuneTool(WorkAreaTabWidget):
         self.summaryLabel.setText('PID 自动测量进行中...')
         self.startButton.setEnabled(False)
         self.stopButton.setEnabled(True)
+        self.device.sendPassiveTorqueRunningSpeedThreshold(
+            str(self.passiveFollowRunningThresholdSpin.value()))
 
         self.worker = PidAutoTuneWorker(
             self.device,
