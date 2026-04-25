@@ -128,10 +128,13 @@ void MotorControlApp::handleMotorCommand(char* cmd) {
       active_command_ != nullptr ? *active_command_ : serial0_command_;
 
   if (cmd && cmd[0] == 'X') {
-    if (!IsCommandSentinel(cmd[1])) {
-      setReleaseMode(cmd[1] != '0');
+    // 释放模式只接受明确的MX0/MX1，避免畸形命令误触发释放。
+    if (IsCommandSentinel(cmd[1])) {
+      reportReleaseMode();
+    } else if ((cmd[1] == '0' || cmd[1] == '1') && IsCommandSentinel(cmd[2])) {
+      setReleaseMode(cmd[1] == '1');
+      reportReleaseMode();
     }
-    reportReleaseMode();
     return;
   }
 

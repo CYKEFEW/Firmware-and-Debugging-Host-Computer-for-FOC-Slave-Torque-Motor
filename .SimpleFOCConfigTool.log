@@ -1,0 +1,8 @@
+root - ERROR - byref() argument must be a ctypes instance, not 'NoneType'
+Traceback (most recent call last):
+  File "e:\Projects\PIO\Deng FOC M1\SimpleFOCStudio-zh-master\src\simpleFOCConnector.py", line 1297, in run
+    reading = self.serialComm.readline()
+  File "D:\python\Lib\site-packages\serial\serialwin32.py", line 285, in read
+    ctypes.byref(self._overlapped_read))
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: byref() argument must be a ctypes instance, not 'NoneType'
